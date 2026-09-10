@@ -14,6 +14,7 @@ namespace ModernFences
     {
         private readonly App _app;
         private readonly FenceData _data;
+        private bool _contentVisible = true;
 
         private static readonly Brush CardHover = new SolidColorBrush(Color.FromArgb(48, 255, 255, 255));
 
@@ -29,11 +30,36 @@ namespace ModernFences
             Top = data.Y;
             BaslikYazi.Text = data.Title;
 
+            // Fare ile aç/kapat (auto-hide)
+            MouseEnter += (s, e) => { if (_data.AutoHide && !_contentVisible) SetContentVisible(true); };
+            MouseLeave += (s, e) => { if (_data.AutoHide && _contentVisible) SetContentVisible(false); };
+
             Loaded += (s, e) =>
             {
                 LoadItems();
-                if (_data.Collapsed) SetCollapsed(true);
+                ApplyAppearance();
             };
+        }
+
+        // Renk/şeffaflık/boyut ve içerik durumunu uygula
+        public void ApplyAppearance()
+        {
+            RootBorder.Background = new SolidColorBrush(
+                Color.FromArgb((byte)_data.A, (byte)_data.R, (byte)_data.G, (byte)_data.B));
+            Width = _data.Width;
+
+            bool show;
+            if (_data.AutoHide) show = IsMouseOver;      // fare üstündeyse açık
+            else show = !_data.Collapsed;                // değilse manuel duruma göre
+            SetContentVisible(show);
+        }
+
+        private void SetContentVisible(bool visible)
+        {
+            _contentVisible = visible;
+            Icerik.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            Height = visible ? (_data.Height > 60 ? _data.Height : 420) : 40;
+            CollapseBtn.Content = visible ? "—" : "▢";
         }
 
         protected override void OnSourceInitialized(EventArgs e)
@@ -262,20 +288,28 @@ namespace ModernFences
 
         private void ResizeBottom_DragDelta(object sender, DragDeltaEventArgs e)
         {
-            if (_data.Collapsed) return;
+            if (!_contentVisible) return;
             Height = Math.Max(90, Height + e.VerticalChange);
         }
 
         private void ResizeCorner_DragDelta(object sender, DragDeltaEventArgs e)
         {
             Width = Math.Max(MinWidth, Width + e.HorizontalChange);
-            if (!_data.Collapsed)
+            if (_contentVisible)
                 Height = Math.Max(90, Height + e.VerticalChange);
         }
 
         private void Yeni_Click(object sender, RoutedEventArgs e) => _app.NewFence();
 
-        private void Collapse_Click(object sender, RoutedEventArgs e) => SetCollapsed(!_data.Collapsed);
+        private void Collapse_Click(object sender, RoutedEventArgs e) => ToggleCollapse();
+
+        private void ToggleCollapse()
+        {
+            if (_data.AutoHide) _data.AutoHide = false; // manuel kontrol -> auto-hide kapansın
+            _data.Collapsed = !_data.Collapsed;
+            SetContentVisible(!_data.Collapsed);
+            _app.RequestSave();
+        }
 
         private void Kapat_Click(object sender, RoutedEventArgs e)
         {
@@ -289,9 +323,25 @@ namespace ModernFences
         private void Menu_Click(object sender, RoutedEventArgs e)
         {
             var menu = new ContextMenu();
+            menu.Items.Add(MenuItem2("Ayarlar… (renk, şeffaflık, boyut)", OpenSettings));
             menu.Items.Add(MenuItem2("Pencere Adını Değiştir", RenameFence));
             menu.Items.Add(MenuItem2("Yeni Pencere", () => _app.NewFence()));
-            menu.Items.Add(MenuItem2(_data.Collapsed ? "Genişlet" : "Daralt", () => SetCollapsed(!_data.Collapsed)));
+            menu.Items.Add(MenuItem2(_contentVisible ? "Daralt" : "Genişlet", ToggleCollapse));
+
+            var autoHideItem = new MenuItem
+            {
+                Header = "Fare ile Aç/Kapat",
+                IsCheckable = true,
+                IsChecked = _data.AutoHide
+            };
+            autoHideItem.Click += (s, ev) =>
+            {
+                _data.AutoHide = autoHideItem.IsChecked;
+                if (!_data.AutoHide) _data.Collapsed = false;
+                ApplyAppearance();
+                _app.RequestSave();
+            };
+            menu.Items.Add(autoHideItem);
 
             var startItem = new MenuItem
             {
@@ -323,23 +373,13 @@ namespace ModernFences
             _app.RequestSave();
         }
 
-        private void SetCollapsed(bool collapsed)
+        private void OpenSettings()
         {
-            if (collapsed)
+            SettingsDialog.Show(this, _data, () =>
             {
-                if (!_data.Collapsed) _data.Height = (int)Height;
-                Icerik.Visibility = Visibility.Collapsed;
-                Height = 40;
-                CollapseBtn.Content = "▢";
-            }
-            else
-            {
-                Icerik.Visibility = Visibility.Visible;
-                Height = _data.Height > 40 ? _data.Height : 420;
-                CollapseBtn.Content = "—";
-            }
-            _data.Collapsed = collapsed;
-            _app.RequestSave();
+                ApplyAppearance();
+                _app.RequestSave();
+            });
         }
 
         // ------------------------------------------------------------------
@@ -363,7 +403,7 @@ namespace ModernFences
             if (!double.IsNaN(Left)) _data.X = (int)Left;
             if (!double.IsNaN(Top)) _data.Y = (int)Top;
             _data.Width = (int)Width;
-            if (!_data.Collapsed) _data.Height = (int)Height;
+            if (_contentVisible) _data.Height = (int)Height; // sadece açıkken sakla
             _app?.RequestSave();
         }
     }

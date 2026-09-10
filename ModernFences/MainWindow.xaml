@@ -47,7 +47,7 @@
 
     <Grid>
         <!-- Ana çerçeve (yarı şeffaf, yuvarlak köşe) -->
-        <Border Background="#33000000" CornerRadius="10" ClipToBounds="True">
+        <Border x:Name="RootBorder" Background="#33000000" CornerRadius="10" ClipToBounds="True">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="40"/>

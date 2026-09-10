@@ -26,6 +26,15 @@ namespace ModernFences
         public int Width = 300;
         public int Height = 420;
         public bool Collapsed = false;
+
+        // Görünüm: arka plan tonu (ARGB). Varsayılan #33000000 (koyu, yarı şeffaf)
+        public int A = 51;
+        public int R = 0;
+        public int G = 0;
+        public int B = 0;
+
+        // Fare üzerine gelince aç, çekilince kapat
+        public bool AutoHide = false;
     }
 
     public class AppConfig
@@ -166,7 +175,7 @@ namespace ModernFences
                         var p = line.Split('|');
                         if (p.Length >= 8)
                         {
-                            cfg.Fences.Add(new FenceData
+                            var fd = new FenceData
                             {
                                 Id = p[1],
                                 Title = Uri.UnescapeDataString(p[2]),
@@ -175,7 +184,17 @@ namespace ModernFences
                                 Width = ParseInt(p[5], 300),
                                 Height = ParseInt(p[6], 420),
                                 Collapsed = p[7] == "1"
-                            });
+                            };
+                            // Yeni alanlar (eski dosyalarda olmayabilir)
+                            if (p.Length >= 13)
+                            {
+                                fd.A = ParseInt(p[8], 51);
+                                fd.R = ParseInt(p[9], 0);
+                                fd.G = ParseInt(p[10], 0);
+                                fd.B = ParseInt(p[11], 0);
+                                fd.AutoHide = p[12] == "1";
+                            }
+                            cfg.Fences.Add(fd);
                         }
                     }
                 }
@@ -200,7 +219,12 @@ namespace ModernFences
                         f.Y.ToString(),
                         f.Width.ToString(),
                         f.Height.ToString(),
-                        f.Collapsed ? "1" : "0"));
+                        f.Collapsed ? "1" : "0",
+                        f.A.ToString(),
+                        f.R.ToString(),
+                        f.G.ToString(),
+                        f.B.ToString(),
+                        f.AutoHide ? "1" : "0"));
                 }
                 File.WriteAllText(ConfigPath, sb.ToString());
             }
@@ -366,6 +390,125 @@ namespace ModernFences
             w.Loaded += (s, e) => { tb.SelectAll(); tb.Focus(); };
 
             return w.ShowDialog() == true ? result : null;
+        }
+    }
+
+    // =====================================================================
+    //  PENCERE AYARLARI (renk / şeffaflık / boyut / fare ile aç-kapat)
+    // =====================================================================
+    internal static class SettingsDialog
+    {
+        public static void Show(Window owner, FenceData d, Action apply)
+        {
+            var w = new Window
+            {
+                Title = "Pencere Ayarları",
+                Width = 350,
+                Height = 460,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStyle = WindowStyle.ToolWindow,
+                Topmost = true,
+                Owner = owner
+            };
+
+            var panel = new StackPanel { Margin = new Thickness(16) };
+
+            panel.Children.Add(Section("Renk"));
+            var rs = MakeSlider(0, 255, d.R);
+            var gs = MakeSlider(0, 255, d.G);
+            var bs = MakeSlider(0, 255, d.B);
+            panel.Children.Add(Row("Kırmızı", rs));
+            panel.Children.Add(Row("Yeşil", gs));
+            panel.Children.Add(Row("Mavi", bs));
+
+            panel.Children.Add(Section("Şeffaflık"));
+            var a = MakeSlider(0, 255, d.A);
+            panel.Children.Add(Row("Koyuluk (0=şeffaf)", a));
+
+            panel.Children.Add(Section("Boyut"));
+            var ws = MakeSlider(180, 900, d.Width);
+            var hs = MakeSlider(120, 1000, d.Height);
+            panel.Children.Add(Row("Genişlik", ws));
+            panel.Children.Add(Row("Yükseklik", hs));
+
+            var chk = new CheckBox
+            {
+                Content = "Fare üzerine gelince aç, çekilince kapat",
+                IsChecked = d.AutoHide,
+                Margin = new Thickness(0, 12, 0, 0)
+            };
+            panel.Children.Add(chk);
+
+            var swatch = new Border
+            {
+                Height = 26,
+                Margin = new Thickness(0, 12, 0, 0),
+                CornerRadius = new CornerRadius(4),
+                BorderBrush = System.Windows.Media.Brushes.Gray,
+                BorderThickness = new Thickness(1)
+            };
+            panel.Children.Add(swatch);
+
+            Action update = () =>
+            {
+                d.R = (int)rs.Value; d.G = (int)gs.Value; d.B = (int)bs.Value;
+                d.A = (int)a.Value; d.Width = (int)ws.Value; d.Height = (int)hs.Value;
+                d.AutoHide = chk.IsChecked == true;
+                swatch.Background = new SolidColorBrush(
+                    Color.FromArgb((byte)d.A, (byte)d.R, (byte)d.G, (byte)d.B));
+                apply();
+            };
+
+            RoutedPropertyChangedEventHandler<double> onChange = (s, e) => update();
+            rs.ValueChanged += onChange; gs.ValueChanged += onChange; bs.ValueChanged += onChange;
+            a.ValueChanged += onChange; ws.ValueChanged += onChange; hs.ValueChanged += onChange;
+            chk.Checked += (s, e) => update();
+            chk.Unchecked += (s, e) => update();
+
+            var close = new Button
+            {
+                Content = "Kapat",
+                Width = 80,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 16, 0, 0),
+                IsCancel = true
+            };
+            panel.Children.Add(close);
+
+            w.Content = new ScrollViewer { Content = panel };
+            update();      // ilk uygulama + örnek renk
+            w.ShowDialog();
+        }
+
+        private static TextBlock Section(string t) => new TextBlock
+        {
+            Text = t,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 8, 0, 2)
+        };
+
+        private static Slider MakeSlider(double min, double max, double val) => new Slider
+        {
+            Minimum = min,
+            Maximum = max,
+            Value = Math.Max(min, Math.Min(max, val)),
+            TickFrequency = 1,
+            IsSnapToTickEnabled = true,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        private static UIElement Row(string label, Slider s)
+        {
+            var g = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var l = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(l, 0);
+            Grid.SetColumn(s, 1);
+            g.Children.Add(l);
+            g.Children.Add(s);
+            return g;
         }
     }
 }
