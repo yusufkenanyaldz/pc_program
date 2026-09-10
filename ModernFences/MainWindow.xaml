@@ -1,0 +1,93 @@
+<Window x:Class="ModernFences.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Modern Fences" Height="420" Width="300"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
+        ShowInTaskbar="False" Topmost="True"
+        MinWidth="180" MinHeight="40"
+        WindowStartupLocation="Manual"
+        FontFamily="Segoe UI">
+
+    <Window.Resources>
+        <!-- Görünmez boyutlandırma tutamağı -->
+        <Style x:Key="InvisibleThumb" TargetType="Thumb">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="Transparent"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Başlık butonları -->
+        <Style x:Key="HeaderBtn" TargetType="Button">
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#40FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <!-- Ana çerçeve (yarı şeffaf, yuvarlak köşe) -->
+        <Border Background="#33000000" CornerRadius="10" ClipToBounds="True">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="40"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Sürüklenebilir başlık -->
+                <Grid x:Name="HeaderBar" Background="#22FFFFFF"
+                      MouseLeftButtonDown="Header_MouseDown">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="BaslikYazi" Text="ARAÇLAR" Foreground="White"
+                               FontWeight="Bold" FontSize="13" VerticalAlignment="Center"
+                               Margin="12,0,0,0" Cursor="SizeAll"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Content="➕" Style="{StaticResource HeaderBtn}" Click="Yeni_Click" ToolTip="Yeni pencere"/>
+                        <Button Content="⋯" Style="{StaticResource HeaderBtn}" Click="Menu_Click" ToolTip="Menü"/>
+                        <Button x:Name="CollapseBtn" Content="—" Style="{StaticResource HeaderBtn}" Click="Collapse_Click" ToolTip="Aç / Kapat"/>
+                        <Button Content="✕" Style="{StaticResource HeaderBtn}" Click="Kapat_Click" ToolTip="Pencereyi kaldır"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- İkon alanı -->
+                <ScrollViewer x:Name="Icerik" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <WrapPanel x:Name="IkonPaneli" Margin="8"/>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- Boyutlandırma tutamakları (kenarlar + köşe) -->
+        <Thumb Style="{StaticResource InvisibleThumb}" Width="6"
+               HorizontalAlignment="Right" Margin="0,40,0,14"
+               Cursor="SizeWE" DragDelta="ResizeRight_DragDelta"/>
+        <Thumb Style="{StaticResource InvisibleThumb}" Height="6"
+               VerticalAlignment="Bottom" Margin="14,0,14,0"
+               Cursor="SizeNS" DragDelta="ResizeBottom_DragDelta"/>
+        <Thumb Style="{StaticResource InvisibleThumb}" Width="16" Height="16"
+               HorizontalAlignment="Right" VerticalAlignment="Bottom"
+               Cursor="SizeNWSE" DragDelta="ResizeCorner_DragDelta"/>
+    </Grid>
+</Window>
