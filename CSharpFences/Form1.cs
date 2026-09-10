@@ -7,7 +7,7 @@ using System.Windows.Forms;
 
 namespace CSharpFences
 {
-    public class Form1 : Form
+    public partial class Form1 : Form
     {
         // --- Windows API: dosya/klasör için GERÇEK sistem ikonunu çeker ---
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
