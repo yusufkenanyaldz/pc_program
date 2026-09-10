@@ -5,13 +5,15 @@ namespace CSharpFences
 {
     internal static class Program
     {
-        // Uygulamanın giriş noktası. Bu olmadan proje ÇALIŞMAZ.
+        // Uygulama giriş noktası. Tek bir pencere yerine, birden çok bağımsız
+        // "fence" penceresini ve tepsi (tray) simgesini yöneten bir
+        // ApplicationContext çalıştırıyoruz.
         [STAThread]
         static void Main()
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new Form1());
+            Application.Run(new FenceAppContext());
         }
     }
 }
