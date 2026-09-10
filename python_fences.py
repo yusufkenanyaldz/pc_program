@@ -5,20 +5,25 @@ Python Fences - Bağımsız Masaüstü Düzenleyici
 Masaüstünüzdeki programları, klasörleri ve dosyaları, birbirinden BAĞIMSIZ
 açılır pencereler (fence) içinde düzenlemenizi sağlar.
 
-ÖNEMLİ: Dosyalar FİZİKSEL OLARAK TAŞINMAZ. Pencereye sürüklenen her öğe
-sadece "referans" (kısayol mantığı) olarak saklanır. Orijinal dosya/klasör
-bulunduğu yerde (masaüstü, disk vb.) kalmaya devam eder. Böylece klasörleme
-olmadan, istediğiniz kadar bağımsız pencere oluşturabilirsiniz.
+ÖNEMLİ: Dosyalar FİZİKSEL OLARAK TAŞINMAZ (diskte yerinde kalır).
+
+Windows'ta "gerçek Fences" davranışı: Masaüstündeki bir öğe pencereye
+sürüklendiğinde, masaüstündeki SİMGESİ gizlenir (ama dosya taşınmaz) ve öğe
+pencerede görünür. Bu, desktop_integration.py üzerinden yapılır; modül yoksa
+veya Windows değilse program sessizce "referans" moduna düşer (simge
+masaüstünde kalır, pencerede de kısayolu görünür).
 
 Özellikler:
   - Birden fazla bağımsız pencere (her biri ayrı konum, başlık ve öğe listesi)
   - Program (.exe), klasör ve tüm dosya türleri için sürükle-bırak
-  - Dosyalar taşınmaz, sadece referans tutulur
+  - Windows: masaüstü simgesini gizleme (dosya taşımadan)
   - Pencere konumları ve öğeler otomatik kaydedilir
   - Başlığa tutup sürükleyerek pencereyi taşıma
-  - Sağ tık menüsü: Aç / Konumunu Aç / Pencereden Çıkar / Diskten Sil
+  - Öğe sağ tık: Aç / Konumunu Aç / Pencereden Çıkar (geri koy) / Diskten Sil
+  - Başlık sağ tık: yeni pencere, tüm simgeleri masaüstüne geri getirme
 
 Gereksinimler:  pip install pillow tkinterdnd2
+Masaüstü gizleme için: Windows + 'Simgeleri otomatik düzenle' KAPALI olmalı.
 """
 
 import os
@@ -32,6 +37,13 @@ from tkinter import messagebox, simpledialog
 
 from PIL import Image, ImageDraw, ImageTk
 from tkinterdnd2 import DND_FILES, TkinterDnD
+
+# Windows masaüstü entegrasyonu (gerçek Fences: simgeyi masaüstünden gizler).
+# Bulunamazsa veya Windows değilse sessizce "referans" moduna düşer.
+try:
+    from desktop_integration import DesktopIcons
+except Exception:
+    DesktopIcons = None
 
 # ---------------------------------------------------------------------------
 # Tema / sabitler
@@ -69,6 +81,25 @@ def reveal_path(path):
     """Öğenin bulunduğu klasörü açar (öğeyi silmeden konumunu gösterir)."""
     folder = path if os.path.isdir(path) else os.path.dirname(path)
     open_path(folder)
+
+
+def desktop_dirs():
+    """Masaüstü klasörlerinin (kullanıcı + ortak) yollarını döndürür."""
+    dirs = []
+    home = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+    if home:
+        dirs.append(os.path.join(home, "Desktop"))
+        dirs.append(os.path.join(home, "Masaüstü"))  # TR Windows
+    public = os.environ.get("PUBLIC")
+    if public:
+        dirs.append(os.path.join(public, "Desktop"))
+    return [os.path.normcase(os.path.normpath(d)) for d in dirs]
+
+
+def is_on_desktop(path):
+    """Verilen öğe bir masaüstü klasöründe mi? (yanlış simgeyi gizlememek için)"""
+    parent = os.path.normcase(os.path.normpath(os.path.dirname(path)))
+    return parent in desktop_dirs()
 
 
 def detect_type(path):
@@ -166,11 +197,12 @@ class FenceWindow(tk.Toplevel):
             font=FONT_HEADER, anchor="w", padx=8)
         self.title_label.pack(side="left", fill="both", expand=True)
 
-        # Pencereyi başlığından tutup taşıma
+        # Pencereyi başlığından tutup taşıma + sağ tık menüsü
         for w in (header, self.title_label):
             w.bind("<Button-1>", self._start_move)
             w.bind("<B1-Motion>", self._do_move)
             w.bind("<Double-Button-1>", lambda e: self.rename())
+            w.bind("<Button-3>", self._show_header_menu)
 
         # Başlık butonları
         tk.Button(header, text="✕", bg="#e74c3c", fg="white", font=FONT_BTN,
@@ -197,6 +229,17 @@ class FenceWindow(tk.Toplevel):
         tk.Button(footer, text="+ Yeni Pencere", bg=HEADER_BG, fg="white",
                   font=FONT_BTN, relief="flat", command=self.app.new_fence
                   ).pack(side="left", padx=10)
+
+    def _show_header_menu(self, event):
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Pencere adını değiştir", command=self.rename)
+        menu.add_command(label="+ Yeni pencere", command=self.app.new_fence)
+        menu.add_separator()
+        menu.add_command(label="Tüm simgeleri masaüstüne geri getir",
+                         command=self.app.restore_all)
+        menu.add_separator()
+        menu.add_command(label="Pencereyi kapat", command=self.close_fence)
+        menu.tk_popup(event.x_root, event.y_root)
 
     # -- Pencere taşıma ------------------------------------------------------
     def _start_move(self, event):
@@ -226,11 +269,16 @@ class FenceWindow(tk.Toplevel):
             if any(it["path"] == path for it in self.data["items"]):
                 continue
             name = os.path.basename(path.rstrip(os.sep)) or path
-            self.data["items"].append({
+            item = {
                 "path": path,
                 "name": os.path.splitext(name)[0] if not os.path.isdir(path) else name,
                 "type": detect_type(path),
-            })
+                "hidden": False,
+                "desktop_pos": None,
+            }
+            # Gerçek Fences: masaüstündeki öğenin simgesini gizle (dosya taşınmaz).
+            self.app.hide_on_desktop(item)
+            self.data["items"].append(item)
             added += 1
 
         if added:
@@ -314,7 +362,7 @@ class FenceWindow(tk.Toplevel):
         menu.add_command(label="Konumunu Aç",
                          command=lambda: self._reveal(item["path"]))
         menu.add_separator()
-        menu.add_command(label="Pencereden Çıkar (dosya silinmez)",
+        menu.add_command(label="Pencereden Çıkar (masaüstüne geri koy)",
                          command=lambda: self._remove_item(item))
         menu.add_command(label="Diskten Sil…",
                          command=lambda: self._delete_from_disk(item))
@@ -327,7 +375,9 @@ class FenceWindow(tk.Toplevel):
             messagebox.showerror("Hata", f"Konum açılamadı:\n{e}")
 
     def _remove_item(self, item):
-        """Öğeyi sadece pencereden çıkarır. Orijinal dosyaya dokunmaz."""
+        """Öğeyi pencereden çıkarır ve gizlenmişse masaüstüne geri koyar.
+        Orijinal dosyaya dokunmaz."""
+        self.app.restore_on_desktop(item)
         self.data["items"] = [
             it for it in self.data["items"] if it["path"] != item["path"]]
         self.refresh_grid()
@@ -383,12 +433,68 @@ class PythonFencesApp:
         self.fences = []
         self._save_job = None
 
+        # Windows masaüstü entegrasyonu (varsa)
+        self.desktop = DesktopIcons() if DesktopIcons else None
+        self._warn_if_autoarrange()
+
         fences_data = self._load_data()
         if not fences_data:
             fences_data = [self._default_fence()]
 
         for fd in fences_data:
             self._open_fence(fd)
+
+        # Program açılışında, daha önce gizlenmiş öğeleri yeniden gizle
+        # (Explorer yeniden başlamış olabilir).
+        self._rehide_all()
+
+    # -- Masaüstü entegrasyonu ----------------------------------------------
+    def _warn_if_autoarrange(self):
+        if self.desktop and self.desktop.available and self.desktop.auto_arrange_on():
+            messagebox.showwarning(
+                "Masaüstü Ayarı",
+                "Masaüstünde 'Simgeleri otomatik düzenle' AÇIK görünüyor.\n\n"
+                "Bu açıkken simgeler gizlenemez (Windows hemen geri taşır).\n"
+                "Masaüstüne sağ tıklayın → Görünüm → 'Simgeleri otomatik "
+                "düzenle' seçeneğini KAPATIN.")
+
+    def hide_on_desktop(self, item):
+        """Öğe masaüstündeyse simgesini gizler; konumunu item'e kaydeder."""
+        if not (self.desktop and self.desktop.available):
+            return
+        if not is_on_desktop(item["path"]):
+            return
+        pos = self.desktop.hide(os.path.basename(item["path"].rstrip(os.sep)))
+        if pos is not None:
+            item["hidden"] = True
+            item["desktop_pos"] = list(pos)
+
+    def restore_on_desktop(self, item):
+        """Gizlenmiş simgeyi masaüstündeki eski konumuna geri koyar."""
+        if not (self.desktop and self.desktop.available):
+            return
+        if not item.get("hidden"):
+            return
+        pos = item.get("desktop_pos")
+        self.desktop.show(os.path.basename(item["path"].rstrip(os.sep)), pos)
+        item["hidden"] = False
+
+    def _rehide_all(self):
+        if not (self.desktop and self.desktop.available):
+            return
+        for fence in self.fences:
+            for item in fence.data.get("items", []):
+                if item.get("hidden") and is_on_desktop(item["path"]):
+                    self.desktop.hide(
+                        os.path.basename(item["path"].rstrip(os.sep)))
+
+    def restore_all(self):
+        """Tüm gizli simgeleri masaüstüne geri getirir (acil durum kurtarma)."""
+        for fence in self.fences:
+            for item in fence.data.get("items", []):
+                if item.get("hidden"):
+                    self.restore_on_desktop(item)
+        self.save_data()
 
     # -- İkonlar -------------------------------------------------------------
     def _load_icons(self):
@@ -461,10 +567,15 @@ class PythonFencesApp:
         self.save_data()
 
     def remove_fence(self, fence):
+        # Pencere kapanırken gizlenmiş simgeleri masaüstüne geri koy
+        for item in fence.data.get("items", []):
+            self.restore_on_desktop(item)
         fence.destroy()
         self.fences = [f for f in self.fences if f is not fence]
         self.save_data()
         if not self.fences:
+            if self.desktop:
+                self.desktop.close()
             self.root.quit()
 
     def run(self):

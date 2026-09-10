@@ -8,11 +8,27 @@ Masaüstünüzdeki **programları, klasörleri ve dosyaları**, birbirinden
 Eski sürüm, pencereye sürüklenen dosyaları `Fences_Deposu` adlı bir klasöre
 **fiziksel olarak taşıyordu** (klasörleme). Bu sürümde:
 
-- ✅ **Dosyalar TAŞINMAZ.** Her öğe sadece *referans* (kısayol mantığı) olarak
-  tutulur; orijinal dosya/klasör bulunduğu yerde kalır.
+- ✅ **Dosyalar DİSKTE TAŞINMAZ.** Orijinal dosya/klasör yerinde kalır.
+- ✅ **Gerçek Fences (Windows):** Masaüstündeki bir öğeyi pencereye
+  sürüklediğinde, masaüstündeki **simgesi gizlenir** (dosya taşınmadan) ve
+  öğe pencerede görünür. Pencereden çıkarınca simge masaüstüne geri gelir.
 - ✅ **Birden fazla bağımsız pencere** oluşturabilirsiniz. Her pencerenin kendi
   başlığı, konumu ve öğe listesi vardır.
 - ✅ **Program (`.exe`), klasör ve her dosya türü** sürükle-bırak ile eklenir.
+
+### Masaüstü simge gizleme (gerçek Fences) — Windows
+
+Simge gizleme `desktop_integration.py` ile yapılır (saf `ctypes`, ek paket
+gerekmez). Çalışması için:
+
+- **Windows** gerekir (64-bit Windows'ta 64-bit Python kullanın).
+- Masaüstüne sağ tık → Görünüm → **"Simgeleri otomatik düzenle" KAPALI**
+  olmalı (açıksa Windows simgeyi hemen geri taşır).
+- Bu, Explorer'ın masaüstü liste görünümüne müdahale eden düşük seviyeli bir
+  tekniktir; **deneyseldir**. Bir sorun olursa pencere başlığına sağ tıklayıp
+  **"Tüm simgeleri masaüstüne geri getir"** ile hepsini kurtarabilirsiniz.
+- Windows dışında veya modül yoksa program otomatik olarak **referans moduna**
+  düşer: simge masaüstünde kalır, pencerede de kısayolu görünür.
 
 ## Kullanım
 
@@ -27,10 +43,12 @@ python python_fences.py
 - **Yeni pencere:** Alttaki `+ Yeni Pencere` düğmesi.
 - **Pencere adını değiştir:** Başlığa çift tıklayın veya ✎ düğmesine basın.
 - **Pencereyi kapat:** ✕ düğmesi.
-- **Sağ tık menüsü:**
+- **Öğeye sağ tık:**
   - *Aç* / *Konumunu Aç*
-  - *Pencereden Çıkar* (dosya silinmez, sadece referans kaldırılır)
+  - *Pencereden Çıkar* (dosya silinmez; masaüstü simgesi gizlenmişse geri gelir)
   - *Diskten Sil…* (kalıcı siler — onay ister)
+- **Başlığa sağ tık:** yeni pencere, **tüm simgeleri masaüstüne geri getir**
+  (acil kurtarma), pencereyi kapat.
 
 ## Veri
 
