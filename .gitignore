@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 fences_data.json
 Fences_Deposu/
+
+# .NET / C#
+bin/
+obj/
+*.user
