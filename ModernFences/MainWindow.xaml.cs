@@ -292,8 +292,24 @@ namespace ModernFences
             menu.Items.Add(MenuItem2("Pencere Adını Değiştir", RenameFence));
             menu.Items.Add(MenuItem2("Yeni Pencere", () => _app.NewFence()));
             menu.Items.Add(MenuItem2(_data.Collapsed ? "Genişlet" : "Daralt", () => SetCollapsed(!_data.Collapsed)));
+
+            var startItem = new MenuItem
+            {
+                Header = "Windows ile Başlat",
+                IsCheckable = true,
+                IsChecked = _app.Config.StartWithWindows
+            };
+            startItem.Click += (s, ev) =>
+            {
+                _app.Config.StartWithWindows = startItem.IsChecked;
+                _app.SetStartup(startItem.IsChecked);
+                _app.SaveConfig();
+            };
+            menu.Items.Add(startItem);
+
             menu.Items.Add(new Separator());
             menu.Items.Add(MenuItem2("Pencereyi Kaldır", () => Kapat_Click(null, null)));
+            menu.Items.Add(MenuItem2("Uygulamadan Çık", () => Application.Current.Shutdown()));
             menu.PlacementTarget = (UIElement)sender;
             menu.IsOpen = true;
         }

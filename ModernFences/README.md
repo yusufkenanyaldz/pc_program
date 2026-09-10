@@ -9,42 +9,45 @@ pencereden açılır, "Masaüstüne Çıkar" ile geri alınır.
 - 🪟 **Çoklu bağımsız pencere** — her biri ayrı başlık/konum/boyut/içerik
 - 🌫️ **Buzlu cam** arka plan (`SetWindowCompositionAttribute`)
 - 🖼️ **Gerçek Windows ikonları** — exe/excel/resim/klasör (`SHGetFileInfo`)
-- ↔️ **Taşıma** (başlıktan) + **kenardan boyutlandırma** (WPF Thumb)
+- ↔️ **Taşıma** (başlıktan) + **kenardan boyutlandırma**
 - ⬍ **Aç/Kapat** (collapse)
 - ✏️ **Yeniden adlandırma** — pencere başlığı + öğeler
 - 🖱️ **Öğe menüsü:** Aç · Konumunu Aç · Yeniden Adlandır · Masaüstüne Çıkar · Diskten Sil
-- 💾 **Otomatik kayıt** — konum/boyut/başlık `config.json`'a
-- 🔔 **Tepsi simgesi** — yeni pencere · Windows ile başlat · çıkış
+- ⚙️ **Başlık ⋯ menüsü:** yeni pencere · Windows ile başlat · pencereyi kaldır · çıkış
+- 💾 **Otomatik kayıt** — konum/boyut/başlık `config.txt`'ye
 
-## Çalıştırma
+## Bağımlılık yok
 
-Visual Studio: `ModernFences.csproj` → **F5**.
-Komut satırı (.NET 8 SDK): proje klasöründe `dotnet run`.
+Kod **hem .NET Framework hem .NET 8** WPF projelerinde çalışacak şekilde
+yazıldı. Ekstra NuGet paketi, ekstra referans veya `app.manifest` GEREKMEZ —
+yalnızca standart WPF (`PresentationCore`, `PresentationFramework`,
+`WindowsBase`) ve `mscorlib` kullanılır. Tepsi (tray) simgesi yerine, çıkış
+başlık `⋯` menüsünden yapılır.
 
-> Yalnızca **Windows**'ta derlenir/çalışır (WPF).
+## Kurulum (.NET Framework projesinde)
 
-## Önceki koddaki hatalar ve düzeltmeler
-
-| Sorun | Neden | Çözüm |
-|------|-------|-------|
-| Tüm pencerede `DragMove` | İkon tıklamalarını bloke ediyordu | Sürükleme yalnızca başlıkta |
-| Aynı isimli dosya | `File.Move` çakışıp hata veriyordu | `App.Unique` → "(1)" eki |
-| Klasör ikonu yok + handle sızıntısı | `ExtractAssociatedIcon` klasörde çalışmaz, `DestroyIcon` yok | `SHGetFileInfo` + `DestroyIcon` + `Freeze()` |
-| Admin çalıştırma | Sürükle-bırak (UIPI) engelli | `app.manifest` → `asInvoker` |
-| Tek pencere, kayıt yok | — | `App` yöneticisi + `config.json` + tepsi |
+Sadece şu **4 dosyanın içeriğini** repodakiyle değiştir:
+`App.xaml`, `App.xaml.cs`, `MainWindow.xaml`, `MainWindow.xaml.cs`.
+Sonra **Derle → F5**. `.csproj`'a veya `app.manifest`'e dokunmana gerek yok.
 
 ## Depolama
 
-- Ayarlar: `%AppData%\ModernFences\config.json`
+- Ayarlar: `%AppData%\ModernFences\config.txt`
 - Öğeler: `%AppData%\ModernFences\Depo\<pencere-id>\`
 
 Bir pencere kaldırılırsa içindeki öğeler **masaüstüne geri taşınır**.
+"Uygulamadan Çık" ise pencereleri kapatır ama öğeleri yerinde bırakır
+(bir sonraki açılışta geri gelir).
 
 ## Notlar
 
-- **Yönetici olarak çalıştırmayın** (VS dahil) — sürükle-bırak engellenir.
-- Buzlu cam varsayılan olarak `BLURBEHIND`. Daha modern acrylic için
-  `App.xaml.cs` içindeki `AccentState`'i `ACCENT_ENABLE_ACRYLICBLURBEHIND`
-  yapın (bazı Windows sürümlerinde siyah kutu yapabilir).
+- **Yönetici olarak çalıştırmayın** — Explorer'dan sürükle-bırak engellenir.
+- Buzlu cam varsayılan `BLURBEHIND`. Daha modern acrylic için `App.xaml.cs`
+  içindeki `AccentState`'i `ACCENT_ENABLE_ACRYLICBLURBEHIND` yapın (bazı
+  sürümlerde siyah kutu yapabilir).
 - Farklı diske taşımada `Directory.Move` hata verebilir; aynı disk içinde
   sorunsuz.
+
+> Repodaki `ModernFences.csproj`/`app.manifest`, projeyi `dotnet` ile .NET 8
+> olarak derlemek isteyenler içindir; .NET Framework kullanıcısı bunlara
+> dokunmaz.

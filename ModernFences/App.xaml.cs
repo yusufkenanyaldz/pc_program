@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text.Json;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
@@ -10,8 +11,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
-using Forms = System.Windows.Forms;
-using Drawing = System.Drawing;
 
 namespace ModernFences
 {
@@ -20,23 +19,23 @@ namespace ModernFences
     // =====================================================================
     public class FenceData
     {
-        public string Id { get; set; } = Guid.NewGuid().ToString("N");
-        public string Title { get; set; } = "ARAÇLAR";
-        public int X { get; set; } = 200;
-        public int Y { get; set; } = 120;
-        public int Width { get; set; } = 300;
-        public int Height { get; set; } = 420;
-        public bool Collapsed { get; set; } = false;
+        public string Id = Guid.NewGuid().ToString("N");
+        public string Title = "ARAÇLAR";
+        public int X = 200;
+        public int Y = 120;
+        public int Width = 300;
+        public int Height = 420;
+        public bool Collapsed = false;
     }
 
     public class AppConfig
     {
-        public List<FenceData> Fences { get; set; } = new List<FenceData>();
-        public bool StartWithWindows { get; set; } = false;
+        public List<FenceData> Fences = new List<FenceData>();
+        public bool StartWithWindows = false;
     }
 
     // =====================================================================
-    //  UYGULAMA (tüm pencereler + tepsi simgesi)
+    //  UYGULAMA (tüm pencereleri yönetir)
     // =====================================================================
     public partial class App : Application
     {
@@ -44,11 +43,10 @@ namespace ModernFences
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "ModernFences");
         public static readonly string StoreDir = Path.Combine(BaseDir, "Depo");
-        private static readonly string ConfigPath = Path.Combine(BaseDir, "config.json");
+        private static readonly string ConfigPath = Path.Combine(BaseDir, "config.txt");
 
         public AppConfig Config { get; private set; }
         private readonly List<MainWindow> _windows = new List<MainWindow>();
-        private Forms.NotifyIcon _tray;
         private DispatcherTimer _saveTimer;
 
         protected override void OnStartup(StartupEventArgs e)
@@ -60,8 +58,6 @@ namespace ModernFences
             Config = LoadConfig();
             if (Config.Fences.Count == 0)
                 Config.Fences.Add(new FenceData());
-
-            SetupTray();
 
             foreach (var d in Config.Fences.ToArray())
                 OpenFence(d);
@@ -112,13 +108,8 @@ namespace ModernFences
             catch { }
 
             Config.Fences.Remove(d);
-            window.Close();
             SaveConfig();
-
-            if (Config.Fences.Count == 0 && _tray != null)
-                _tray.ShowBalloonTip(3000, "Modern Fences",
-                    "Tüm pencereler kapandı. Tepsi simgesinden yeni pencere açabilirsiniz.",
-                    Forms.ToolTipIcon.Info);
+            window.Close(); // son pencereyse OnLastWindowClose ile uygulama kapanır
         }
 
         // --- Ortak yardımcılar ---
@@ -146,7 +137,7 @@ namespace ModernFences
             else File.Move(src, dst);
         }
 
-        // --- Yapılandırma (kaydı geciktir: sürükleme sırasında çok tetiklenir) ---
+        // --- Yapılandırma (harici kütüphane olmadan basit metin biçimi) ---
         public void RequestSave()
         {
             if (_saveTimer == null)
@@ -160,71 +151,70 @@ namespace ModernFences
 
         private AppConfig LoadConfig()
         {
+            var cfg = new AppConfig();
             try
             {
-                if (File.Exists(ConfigPath))
-                    return JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(ConfigPath))
-                           ?? new AppConfig();
+                if (!File.Exists(ConfigPath)) return cfg;
+                foreach (var line in File.ReadAllLines(ConfigPath))
+                {
+                    if (line.StartsWith("STARTWITHWINDOWS="))
+                    {
+                        cfg.StartWithWindows = line.EndsWith("1");
+                    }
+                    else if (line.StartsWith("FENCE|"))
+                    {
+                        var p = line.Split('|');
+                        if (p.Length >= 8)
+                        {
+                            cfg.Fences.Add(new FenceData
+                            {
+                                Id = p[1],
+                                Title = Uri.UnescapeDataString(p[2]),
+                                X = ParseInt(p[3], 200),
+                                Y = ParseInt(p[4], 120),
+                                Width = ParseInt(p[5], 300),
+                                Height = ParseInt(p[6], 420),
+                                Collapsed = p[7] == "1"
+                            });
+                        }
+                    }
+                }
             }
             catch { }
-            return new AppConfig();
+            return cfg;
         }
 
         public void SaveConfig()
         {
             try
             {
-                File.WriteAllText(ConfigPath, JsonSerializer.Serialize(
-                    Config, new JsonSerializerOptions { WriteIndented = true }));
+                var sb = new StringBuilder();
+                sb.AppendLine("STARTWITHWINDOWS=" + (Config.StartWithWindows ? "1" : "0"));
+                foreach (var f in Config.Fences)
+                {
+                    sb.AppendLine(string.Join("|",
+                        "FENCE",
+                        f.Id,
+                        Uri.EscapeDataString(f.Title ?? ""),
+                        f.X.ToString(),
+                        f.Y.ToString(),
+                        f.Width.ToString(),
+                        f.Height.ToString(),
+                        f.Collapsed ? "1" : "0"));
+                }
+                File.WriteAllText(ConfigPath, sb.ToString());
             }
             catch { }
         }
 
-        // --- Tepsi simgesi ---
-        private void SetupTray()
+        private static int ParseInt(string s, int def)
         {
-            var menu = new Forms.ContextMenuStrip();
-            menu.Items.Add("Yeni Pencere").Click += (s, e) => NewFence();
-
-            var startItem = new Forms.ToolStripMenuItem("Windows ile Başlat")
-            {
-                Checked = Config.StartWithWindows,
-                CheckOnClick = true
-            };
-            startItem.Click += (s, e) =>
-            {
-                Config.StartWithWindows = startItem.Checked;
-                SetStartup(startItem.Checked);
-                SaveConfig();
-            };
-            menu.Items.Add(startItem);
-            menu.Items.Add(new Forms.ToolStripSeparator());
-            menu.Items.Add("Çıkış").Click += (s, e) => ExitApp();
-
-            _tray = new Forms.NotifyIcon
-            {
-                Text = "Modern Fences",
-                Icon = MakeTrayIcon(),
-                Visible = true,
-                ContextMenuStrip = menu
-            };
-            _tray.DoubleClick += (s, e) => NewFence();
+            int v;
+            return int.TryParse(s, out v) ? v : def;
         }
 
-        private void ExitApp()
-        {
-            SaveConfig();
-            if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
-            Shutdown();
-        }
-
-        protected override void OnExit(ExitEventArgs e)
-        {
-            if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
-            base.OnExit(e);
-        }
-
-        private void SetStartup(bool on)
+        // --- Windows ile başlat (kayıt defteri Run anahtarı) ---
+        public void SetStartup(bool on)
         {
             try
             {
@@ -232,41 +222,21 @@ namespace ModernFences
                     @"Software\Microsoft\Windows\CurrentVersion\Run", true))
                 {
                     if (key == null) return;
-                    string exe = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+                    string exe = Process.GetCurrentProcess().MainModule.FileName;
                     if (on) key.SetValue("ModernFences", "\"" + exe + "\"");
                     else key.DeleteValue("ModernFences", false);
                 }
             }
             catch { }
         }
-
-        private static Drawing.Icon MakeTrayIcon()
-        {
-            var bmp = new Drawing.Bitmap(32, 32);
-            using (var g = Drawing.Graphics.FromImage(bmp))
-            {
-                g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                g.Clear(Drawing.Color.Transparent);
-                using (var b = new Drawing.SolidBrush(Drawing.Color.FromArgb(59, 130, 246)))
-                    g.FillRectangle(b, 3, 5, 26, 22);
-                using (var b = new Drawing.SolidBrush(Drawing.Color.White))
-                {
-                    g.FillRectangle(b, 7, 10, 7, 5);
-                    g.FillRectangle(b, 18, 10, 7, 5);
-                    g.FillRectangle(b, 7, 18, 7, 5);
-                    g.FillRectangle(b, 18, 18, 7, 5);
-                }
-            }
-            return Drawing.Icon.FromHandle(bmp.GetHicon());
-        }
     }
 
     // =====================================================================
-    //  WINDOWS API YARDIMCILARI (buzlu cam + gerçek ikon)
+    //  WINDOWS API YARDIMCILARI (buzlu cam + gerçek ikon) — ekstra referans yok
     // =====================================================================
     internal static class Native
     {
-        // --- Buzlu cam (acrylic/blur) ---
+        // --- Buzlu cam (blur) ---
         [DllImport("user32.dll")]
         private static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
 
@@ -288,8 +258,8 @@ namespace ModernFences
         }
 
         private const int WCA_ACCENT_POLICY = 19;
-        private const int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
         private const int ACCENT_ENABLE_BLURBEHIND = 3;
+        private const int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4; // istenirse
 
         public static void EnableBlur(IntPtr hwnd)
         {
@@ -297,9 +267,6 @@ namespace ModernFences
             {
                 var accent = new AccentPolicy
                 {
-                    // BLURBEHIND, AllowsTransparency ile daha uyumlu (acrylic bazı
-                    // Windows sürümlerinde siyah kutu yapabiliyor). Acrylic istersen
-                    // ACCENT_ENABLE_ACRYLICBLURBEHIND yap.
                     AccentState = ACCENT_ENABLE_BLURBEHIND,
                     GradientColor = unchecked((int)0x99000000)
                 };
