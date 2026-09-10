@@ -143,9 +143,12 @@ class FenceWindow(tk.Toplevel):
         self._build_header()
         self._build_body()
 
-        # Sürüklenen dosyaları bu pencereye bırakma
-        self.grid_frame.drop_target_register(DND_FILES)
-        self.grid_frame.dnd_bind("<<Drop>>", self.on_drop)
+        # Sürüklenen dosyaları bu pencereye bırakma.
+        # Pencerenin HER yeri (ana pencere + ızgara + ipucu) bırakma hedefidir;
+        # böylece boş pencerede ortadaki yazının üstüne bırakınca da algılanır.
+        for target in (self, self.grid_frame, self.hint):
+            target.drop_target_register(DND_FILES)
+            target.dnd_bind("<<Drop>>", self.on_drop)
 
         self.refresh_grid()
 
@@ -183,9 +186,10 @@ class FenceWindow(tk.Toplevel):
         for c in range(COLUMNS):
             self.grid_frame.grid_columnconfigure(c, weight=1)
 
-        # Boş durum ipucu
+        # Boş durum ipucu (ızgaranın içinde; böylece bırakma alanını örtmez)
         self.hint = tk.Label(
-            self, text="Program, klasör veya dosyaları buraya sürükleyin",
+            self.grid_frame,
+            text="Program, klasör veya dosyaları\nburaya sürükleyin",
             bg=THEME_BG, fg="#7f8c8d", font=("Segoe UI", 8, "italic"))
 
         footer = tk.Frame(self, bg=THEME_BG)
@@ -256,12 +260,13 @@ class FenceWindow(tk.Toplevel):
 
     def refresh_grid(self):
         for w in self.grid_frame.winfo_children():
-            w.destroy()
+            if w is not self.hint:
+                w.destroy()
 
         if not self.data["items"]:
-            self.hint.pack(pady=20)
+            self.hint.grid(row=0, column=0, columnspan=COLUMNS, pady=30)
         else:
-            self.hint.pack_forget()
+            self.hint.grid_forget()
             for index, item in enumerate(self.data["items"]):
                 self._add_item_widget(item, index)
 
