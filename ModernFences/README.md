@@ -6,6 +6,8 @@ pencereden açılır, "Masaüstüne Çıkar" ile geri alınır.
 
 ## Özellikler
 
+- 🖥️ **Masaüstüne yapışır** — diğer programların üstüne ÇIKMAZ, hep en altta
+  (masaüstü widget'ı gibi durur)
 - 🪟 **Çoklu bağımsız pencere** — her biri ayrı başlık/konum/boyut/içerik
 - 🌫️ **Buzlu cam** arka plan (`SetWindowCompositionAttribute`)
 - 🖼️ **Gerçek Windows ikonları** — exe/excel/resim/klasör (`SHGetFileInfo`)

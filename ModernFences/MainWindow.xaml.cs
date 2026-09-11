@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -65,7 +66,37 @@ namespace ModernFences
         protected override void OnSourceInitialized(EventArgs e)
         {
             base.OnSourceInitialized(e);
-            Native.EnableBlur(new WindowInteropHelper(this).Handle);
+            IntPtr hwnd = new WindowInteropHelper(this).Handle;
+            Native.MakeDesktopWidget(hwnd);       // masaüstüne yapıştır (hep altta)
+            Native.EnableBlur(hwnd);
+            HwndSource.FromHwnd(hwnd)?.AddHook(WndProc);
+        }
+
+        // Pencere z-sırasını değiştirmeye çalıştığında onu en ALTA zorla
+        // (diğer programların üstüne çıkmasın, masaüstünde kalsın).
+        private static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
+        private const int WM_WINDOWPOSCHANGING = 0x0046;
+        private const int SWP_NOZORDER = 0x0004;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct WINDOWPOS
+        {
+            public IntPtr hwnd;
+            public IntPtr hwndInsertAfter;
+            public int x, y, cx, cy;
+            public int flags;
+        }
+
+        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == WM_WINDOWPOSCHANGING)
+            {
+                var wp = (WINDOWPOS)Marshal.PtrToStructure(lParam, typeof(WINDOWPOS));
+                wp.hwndInsertAfter = HWND_BOTTOM;
+                wp.flags &= ~SWP_NOZORDER;
+                Marshal.StructureToPtr(wp, lParam, false);
+            }
+            return IntPtr.Zero;
         }
 
         // ------------------------------------------------------------------

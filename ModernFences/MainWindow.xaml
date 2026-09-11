@@ -4,7 +4,7 @@
         Title="Modern Fences" Height="420" Width="300"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
-        ShowInTaskbar="False" Topmost="True"
+        ShowInTaskbar="False"
         MinWidth="180" MinHeight="40"
         WindowStartupLocation="Manual"
         FontFamily="Segoe UI">
