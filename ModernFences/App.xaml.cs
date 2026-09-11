@@ -35,11 +35,27 @@ namespace ModernFences
 
         // Fare üzerine gelince aç, çekilince kapat
         public bool AutoHide = false;
+
+        // Ekstra görünüm
+        public int IconSize = 36;   // simge boyutu (px)
+        public int Corner = 10;     // köşe yuvarlaklığı
+        public bool Locked = false; // taşıma/boyutlandırma kilidi
+        public int Sort = 0;        // 0=ada göre, 1=türe göre
+
+        // Folder Portal: doluysa bu çit gerçek bir klasörü canlı yansıtır
+        public string PortalPath = "";
+    }
+
+    public class RuleData
+    {
+        public string Ext = "";       // örn ".png"
+        public string TargetId = "";  // hedef çit Id
     }
 
     public class AppConfig
     {
         public List<FenceData> Fences = new List<FenceData>();
+        public List<RuleData> Rules = new List<RuleData>();
         public bool StartWithWindows = false;
     }
 
@@ -57,6 +73,7 @@ namespace ModernFences
         public AppConfig Config { get; private set; }
         private readonly List<MainWindow> _windows = new List<MainWindow>();
         private DispatcherTimer _saveTimer;
+        private bool _allHidden;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -72,6 +89,16 @@ namespace ModernFences
                 OpenFence(d);
 
             SaveConfig();
+            SetupHotkeys();
+            StartDesktopWatcher();
+        }
+
+        public IEnumerable<FenceData> AllFences { get { return Config.Fences; } }
+
+        public void RefreshFence(string id)
+        {
+            foreach (var w in _windows)
+                if (w.Data.Id == id) { w.ReloadItems(); break; }
         }
 
         public string StorePathFor(FenceData d)
@@ -104,17 +131,24 @@ namespace ModernFences
 
         public void RemoveFence(MainWindow window, FenceData d)
         {
-            try
+            // Portal ise gerçek klasöre DOKUNMA; sadece çiti kaldır.
+            if (string.IsNullOrEmpty(d.PortalPath))
             {
-                string store = StorePathFor(d);
-                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                foreach (var dir in Directory.GetDirectories(store))
-                    SafeMove(dir, Path.Combine(desktop, Path.GetFileName(dir)), true);
-                foreach (var file in Directory.GetFiles(store))
-                    SafeMove(file, Path.Combine(desktop, Path.GetFileName(file)), false);
-                Directory.Delete(store, true);
+                try
+                {
+                    string store = StorePathFor(d);
+                    string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                    foreach (var dir in Directory.GetDirectories(store))
+                        SafeMove(dir, Path.Combine(desktop, Path.GetFileName(dir)), true);
+                    foreach (var file in Directory.GetFiles(store))
+                        SafeMove(file, Path.Combine(desktop, Path.GetFileName(file)), false);
+                    Directory.Delete(store, true);
+                }
+                catch { }
             }
-            catch { }
+
+            // Bu çiti hedefleyen kuralları da temizle
+            Config.Rules.RemoveAll(r => r.TargetId == d.Id);
 
             Config.Fences.Remove(d);
             SaveConfig();
@@ -170,6 +204,16 @@ namespace ModernFences
                     {
                         cfg.StartWithWindows = line.EndsWith("1");
                     }
+                    else if (line.StartsWith("RULE|"))
+                    {
+                        var p = line.Split('|');
+                        if (p.Length >= 3)
+                            cfg.Rules.Add(new RuleData
+                            {
+                                Ext = Uri.UnescapeDataString(p[1]),
+                                TargetId = p[2]
+                            });
+                    }
                     else if (line.StartsWith("FENCE|"))
                     {
                         var p = line.Split('|');
@@ -193,6 +237,14 @@ namespace ModernFences
                                 fd.G = ParseInt(p[10], 0);
                                 fd.B = ParseInt(p[11], 0);
                                 fd.AutoHide = p[12] == "1";
+                            }
+                            if (p.Length >= 18)
+                            {
+                                fd.IconSize = ParseInt(p[13], 36);
+                                fd.Corner = ParseInt(p[14], 10);
+                                fd.Locked = p[15] == "1";
+                                fd.Sort = ParseInt(p[16], 0);
+                                fd.PortalPath = Uri.UnescapeDataString(p[17]);
                             }
                             cfg.Fences.Add(fd);
                         }
@@ -224,7 +276,17 @@ namespace ModernFences
                         f.R.ToString(),
                         f.G.ToString(),
                         f.B.ToString(),
-                        f.AutoHide ? "1" : "0"));
+                        f.AutoHide ? "1" : "0",
+                        f.IconSize.ToString(),
+                        f.Corner.ToString(),
+                        f.Locked ? "1" : "0",
+                        f.Sort.ToString(),
+                        Uri.EscapeDataString(f.PortalPath ?? "")));
+                }
+                foreach (var r in Config.Rules)
+                {
+                    sb.AppendLine(string.Join("|",
+                        "RULE", Uri.EscapeDataString(r.Ext ?? ""), r.TargetId ?? ""));
                 }
                 File.WriteAllText(ConfigPath, sb.ToString());
             }
@@ -252,6 +314,147 @@ namespace ModernFences
                 }
             }
             catch { }
+        }
+
+        // ================= GLOBAL KISAYOL TUŞLARI (Peek / Hızlı gizle) =========
+        [DllImport("user32.dll")]
+        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+        [DllImport("user32.dll")]
+        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+        private const uint MOD_ALT = 1, MOD_CONTROL = 2;
+        private const int WM_HOTKEY = 0x0312;
+        private const int HK_HIDE = 1, HK_PEEK = 2;
+        private HwndSource _hotkeySource;
+
+        private void SetupHotkeys()
+        {
+            try
+            {
+                var parms = new HwndSourceParameters("MF_Hotkeys")
+                {
+                    Width = 0,
+                    Height = 0,
+                    ParentWindow = new IntPtr(-3), // HWND_MESSAGE (yalnızca mesaj penceresi)
+                    WindowStyle = 0
+                };
+                _hotkeySource = new HwndSource(parms);
+                _hotkeySource.AddHook(HotkeyHook);
+                // Ctrl+Alt+H = tümünü gizle/göster,  Ctrl+Alt+F = öne getir (peek)
+                RegisterHotKey(_hotkeySource.Handle, HK_HIDE, MOD_CONTROL | MOD_ALT, 0x48);
+                RegisterHotKey(_hotkeySource.Handle, HK_PEEK, MOD_CONTROL | MOD_ALT, 0x46);
+            }
+            catch { }
+        }
+
+        private IntPtr HotkeyHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == WM_HOTKEY)
+            {
+                int id = wParam.ToInt32();
+                if (id == HK_HIDE) { ToggleHideAll(); handled = true; }
+                else if (id == HK_PEEK) { PeekAll(); handled = true; }
+            }
+            return IntPtr.Zero;
+        }
+
+        public void ToggleHideAll()
+        {
+            _allHidden = !_allHidden;
+            foreach (var w in _windows)
+            {
+                if (_allHidden) w.Hide();
+                else w.Show();
+            }
+        }
+
+        public void PeekAll()
+        {
+            foreach (var w in _windows) w.Peek(true);
+            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            t.Tick += (s, e) =>
+            {
+                t.Stop();
+                foreach (var w in _windows) w.Peek(false);
+            };
+            t.Start();
+        }
+
+        // ================= OTOMATİK KURALLAR (masaüstü izleyici) ===============
+        private FileSystemWatcher _desktopWatcher;
+
+        public void StartDesktopWatcher()
+        {
+            try
+            {
+                if (Config.Rules.Count == 0) return; // kural yoksa izleme
+                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                _desktopWatcher = new FileSystemWatcher(desktop)
+                {
+                    IncludeSubdirectories = false,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
+                    EnableRaisingEvents = true
+                };
+                _desktopWatcher.Created += (s, e) => OnDesktopNew(e.FullPath);
+                _desktopWatcher.Renamed += (s, e) => OnDesktopNew(e.FullPath);
+            }
+            catch { }
+        }
+
+        public void RestartDesktopWatcher()
+        {
+            try { if (_desktopWatcher != null) { _desktopWatcher.Dispose(); _desktopWatcher = null; } }
+            catch { }
+            StartDesktopWatcher();
+        }
+
+        private void OnDesktopNew(string path)
+        {
+            // Watcher arka plan iş parçacığında çalışır.
+            try
+            {
+                string ext = Directory.Exists(path) ? "" : Path.GetExtension(path);
+                if (string.IsNullOrEmpty(ext)) return;
+
+                RuleData rule = null;
+                foreach (var r in Config.Rules)
+                    if (string.Equals(r.Ext, ext, StringComparison.OrdinalIgnoreCase)) { rule = r; break; }
+                if (rule == null) return;
+
+                FenceData target = null;
+                foreach (var f in Config.Fences)
+                    if (f.Id == rule.TargetId && string.IsNullOrEmpty(f.PortalPath)) { target = f; break; }
+                if (target == null) return;
+
+                string store = StorePathFor(target);
+                string dst = Unique(Path.Combine(store, Path.GetFileName(path)));
+
+                // Dosya yeni oluşmuş olabilir, kilitliyse birkaç kez dene
+                for (int i = 0; i < 6; i++)
+                {
+                    try { File.Move(path, dst); break; }
+                    catch { System.Threading.Thread.Sleep(300); }
+                }
+
+                Dispatcher.Invoke(new Action(() => RefreshFence(target.Id)));
+            }
+            catch { }
+        }
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            try
+            {
+                if (_hotkeySource != null)
+                {
+                    UnregisterHotKey(_hotkeySource.Handle, HK_HIDE);
+                    UnregisterHotKey(_hotkeySource.Handle, HK_PEEK);
+                    _hotkeySource.Dispose();
+                }
+                if (_desktopWatcher != null) _desktopWatcher.Dispose();
+            }
+            catch { }
+            base.OnExit(e);
         }
     }
 
@@ -465,11 +668,31 @@ namespace ModernFences
             panel.Children.Add(Row("Genişlik", ws));
             panel.Children.Add(Row("Yükseklik", hs));
 
+            panel.Children.Add(Section("Simgeler ve Çerçeve"));
+            var ico = MakeSlider(16, 64, d.IconSize);
+            var cor = MakeSlider(0, 24, d.Corner);
+            panel.Children.Add(Row("Simge boyutu", ico));
+            panel.Children.Add(Row("Köşe yuvarlaklığı", cor));
+
+            var sortCombo = new ComboBox { Margin = new Thickness(0, 4, 0, 0) };
+            sortCombo.Items.Add("Ada göre sırala");
+            sortCombo.Items.Add("Türe göre sırala");
+            sortCombo.SelectedIndex = d.Sort == 1 ? 1 : 0;
+            panel.Children.Add(sortCombo);
+
+            var lockChk = new CheckBox
+            {
+                Content = "Kilitle (taşıma/boyutlandırma kapalı)",
+                IsChecked = d.Locked,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            panel.Children.Add(lockChk);
+
             var chk = new CheckBox
             {
                 Content = "Fare üzerine gelince aç, çekilince kapat",
                 IsChecked = d.AutoHide,
-                Margin = new Thickness(0, 12, 0, 0)
+                Margin = new Thickness(0, 8, 0, 0)
             };
             panel.Children.Add(chk);
 
@@ -487,6 +710,9 @@ namespace ModernFences
             {
                 d.R = (int)rs.Value; d.G = (int)gs.Value; d.B = (int)bs.Value;
                 d.A = (int)a.Value; d.Width = (int)ws.Value; d.Height = (int)hs.Value;
+                d.IconSize = (int)ico.Value; d.Corner = (int)cor.Value;
+                d.Sort = sortCombo.SelectedIndex == 1 ? 1 : 0;
+                d.Locked = lockChk.IsChecked == true;
                 d.AutoHide = chk.IsChecked == true;
                 swatch.Background = new SolidColorBrush(
                     Color.FromArgb((byte)d.A, (byte)d.R, (byte)d.G, (byte)d.B));
@@ -496,6 +722,10 @@ namespace ModernFences
             RoutedPropertyChangedEventHandler<double> onChange = (s, e) => update();
             rs.ValueChanged += onChange; gs.ValueChanged += onChange; bs.ValueChanged += onChange;
             a.ValueChanged += onChange; ws.ValueChanged += onChange; hs.ValueChanged += onChange;
+            ico.ValueChanged += onChange; cor.ValueChanged += onChange;
+            sortCombo.SelectionChanged += (s, e) => update();
+            lockChk.Checked += (s, e) => update();
+            lockChk.Unchecked += (s, e) => update();
             chk.Checked += (s, e) => update();
             chk.Unchecked += (s, e) => update();
 
@@ -542,6 +772,117 @@ namespace ModernFences
             g.Children.Add(l);
             g.Children.Add(s);
             return g;
+        }
+    }
+
+    // =====================================================================
+    //  OTOMATİK KURALLAR DİYALOĞU
+    // =====================================================================
+    internal static class RulesDialog
+    {
+        public static void Show(Window owner, App app)
+        {
+            var w = new Window
+            {
+                Title = "Otomatik Kurallar",
+                Width = 430,
+                Height = 430,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStyle = WindowStyle.ToolWindow,
+                Topmost = true,
+                Owner = owner
+            };
+
+            var panel = new StackPanel { Margin = new Thickness(14) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Masaüstüne YENİ düşen dosyalar, uzantısına göre seçtiğin çite otomatik taşınır.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+
+            var list = new ListBox { Height = 170 };
+            panel.Children.Add(list);
+
+            Func<string, string> titleOf = id =>
+            {
+                foreach (var f in app.Config.Fences) if (f.Id == id) return f.Title;
+                return "(silinmiş çit)";
+            };
+            Action refresh = () =>
+            {
+                list.Items.Clear();
+                foreach (var r in app.Config.Rules)
+                    list.Items.Add(r.Ext + "  →  " + titleOf(r.TargetId));
+            };
+            refresh();
+
+            var remove = new Button
+            {
+                Content = "Seçili kuralı sil",
+                Margin = new Thickness(0, 6, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Width = 150
+            };
+            remove.Click += (s, e) =>
+            {
+                int i = list.SelectedIndex;
+                if (i >= 0 && i < app.Config.Rules.Count)
+                {
+                    app.Config.Rules.RemoveAt(i);
+                    app.SaveConfig();
+                    app.RestartDesktopWatcher();
+                    refresh();
+                }
+            };
+            panel.Children.Add(remove);
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Yeni kural:",
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 14, 0, 4)
+            });
+
+            var addRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var extBox = new TextBox { Width = 90, Text = ".png", VerticalAlignment = VerticalAlignment.Center };
+            var fenceCombo = new ComboBox { Width = 190, Margin = new Thickness(8, 0, 0, 0) };
+            foreach (var f in app.Config.Fences)
+                if (string.IsNullOrEmpty(f.PortalPath))
+                    fenceCombo.Items.Add(new ComboBoxItem { Content = f.Title, Tag = f.Id });
+            if (fenceCombo.Items.Count > 0) fenceCombo.SelectedIndex = 0;
+
+            var add = new Button { Content = "Ekle", Width = 70, Margin = new Thickness(8, 0, 0, 0) };
+            add.Click += (s, e) =>
+            {
+                string ext = extBox.Text.Trim();
+                if (string.IsNullOrEmpty(ext)) return;
+                if (!ext.StartsWith(".")) ext = "." + ext;
+                var item = fenceCombo.SelectedItem as ComboBoxItem;
+                if (item == null) return;
+                app.Config.Rules.Add(new RuleData { Ext = ext, TargetId = (string)item.Tag });
+                app.SaveConfig();
+                app.RestartDesktopWatcher();
+                refresh();
+            };
+            addRow.Children.Add(extBox);
+            addRow.Children.Add(fenceCombo);
+            addRow.Children.Add(add);
+            panel.Children.Add(addRow);
+
+            var close = new Button
+            {
+                Content = "Kapat",
+                Width = 80,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 16, 0, 0),
+                IsCancel = true
+            };
+            panel.Children.Add(close);
+
+            w.Content = panel;
+            w.ShowDialog();
         }
     }
 }

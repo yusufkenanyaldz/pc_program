@@ -16,8 +16,15 @@ namespace ModernFences
         private readonly App _app;
         private readonly FenceData _data;
         private bool _contentVisible = true;
+        private bool _peek;
+        private System.IO.FileSystemWatcher _portalWatcher;
 
         private static readonly Brush CardHover = new SolidColorBrush(Color.FromArgb(48, 255, 255, 255));
+
+        public FenceData Data { get { return _data; } }
+        public void ReloadItems() { LoadItems(); }
+
+        private bool IsPortal { get { return !string.IsNullOrEmpty(_data.PortalPath); } }
 
         public MainWindow(App app, FenceData data)
         {
@@ -37,17 +44,28 @@ namespace ModernFences
 
             Loaded += (s, e) =>
             {
-                LoadItems();
                 ApplyAppearance();
+                StartPortalWatcher();
             };
+            Closed += (s, e) => StopPortalWatcher();
         }
 
-        // Renk/şeffaflık/boyut ve içerik durumunu uygula
+        // Peek: geçici olarak öne getir (App çağırır)
+        public void Peek(bool on)
+        {
+            _peek = on;
+            Topmost = on;
+        }
+
+        // Renk/şeffaflık/boyut/köşe + içerik durumunu uygula
         public void ApplyAppearance()
         {
             RootBorder.Background = new SolidColorBrush(
                 Color.FromArgb((byte)_data.A, (byte)_data.R, (byte)_data.G, (byte)_data.B));
+            RootBorder.CornerRadius = new CornerRadius(_data.Corner);
             Width = _data.Width;
+
+            LoadItems();
 
             bool show;
             if (_data.AutoHide) show = IsMouseOver;      // fare üstündeyse açık
@@ -89,7 +107,7 @@ namespace ModernFences
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
-            if (msg == WM_WINDOWPOSCHANGING)
+            if (msg == WM_WINDOWPOSCHANGING && !_peek)
             {
                 var wp = (WINDOWPOS)Marshal.PtrToStructure(lParam, typeof(WINDOWPOS));
                 wp.hwndInsertAfter = HWND_BOTTOM;
@@ -105,20 +123,48 @@ namespace ModernFences
         private void LoadItems()
         {
             IkonPaneli.Children.Clear();
-            string store = _app.StorePathFor(_data);
+
+            string source;
+            if (IsPortal)
+            {
+                if (!Directory.Exists(_data.PortalPath))
+                {
+                    ShowHint("Portal klasörü bulunamadı:\n" + _data.PortalPath);
+                    return;
+                }
+                source = _data.PortalPath;
+            }
+            else source = _app.StorePathFor(_data);
+
+            var dirs = Directory.GetDirectories(source);
+            var files = Directory.GetFiles(source);
+            Array.Sort(dirs, CompareEntries);
+            Array.Sort(files, CompareEntries);
 
             bool any = false;
-            foreach (var dir in Directory.GetDirectories(store)) { AddCard(dir); any = true; }
-            foreach (var file in Directory.GetFiles(store)) { AddCard(file); any = true; }
+            foreach (var dir in dirs) { AddCard(dir); any = true; }
+            foreach (var file in files) { AddCard(file); any = true; }
 
-            if (!any) ShowHint();
+            if (!any) ShowHint("Program, klasör veya dosyaları buraya sürükleyin");
         }
 
-        private void ShowHint()
+        private int CompareEntries(string a, string b)
+        {
+            if (_data.Sort == 1) // türe göre
+            {
+                int c = string.Compare(Path.GetExtension(a), Path.GetExtension(b),
+                    StringComparison.OrdinalIgnoreCase);
+                if (c != 0) return c;
+            }
+            return string.Compare(Path.GetFileName(a), Path.GetFileName(b),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void ShowHint(string text)
         {
             IkonPaneli.Children.Add(new TextBlock
             {
-                Text = "Program, klasör veya dosyaları buraya sürükleyin",
+                Text = text,
                 Foreground = new SolidColorBrush(Color.FromArgb(170, 255, 255, 255)),
                 FontStyle = FontStyles.Italic,
                 FontSize = 11,
@@ -131,10 +177,11 @@ namespace ModernFences
 
         private void AddCard(string path)
         {
+            int isz = _data.IconSize < 16 ? 36 : _data.IconSize;
             var card = new Border
             {
-                Width = 78,
-                Height = 86,
+                Width = isz + 44,
+                Height = isz + 52,
                 CornerRadius = new CornerRadius(6),
                 Background = Brushes.Transparent,
                 Margin = new Thickness(4),
@@ -146,8 +193,8 @@ namespace ModernFences
 
             var img = new Image
             {
-                Width = 36,
-                Height = 36,
+                Width = isz,
+                Height = isz,
                 Margin = new Thickness(0, 4, 0, 6),
                 Source = Native.GetIconSource(path)
             };
@@ -264,7 +311,7 @@ namespace ModernFences
             bool any = false;
             foreach (var c in IkonPaneli.Children)
                 if (c is Border) { any = true; break; }
-            if (!any) ShowHint();
+            if (!any) ShowHint("Program, klasör veya dosyaları buraya sürükleyin");
         }
 
         // ------------------------------------------------------------------
@@ -280,7 +327,9 @@ namespace ModernFences
         private void Window_Drop(object sender, DragEventArgs e)
         {
             if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
-            string store = _app.StorePathFor(_data);
+            // Portal ise gerçek klasöre, değilse gizli depoya taşı
+            string store = IsPortal ? _data.PortalPath : _app.StorePathFor(_data);
+            if (IsPortal && !Directory.Exists(store)) return;
             foreach (string src in (string[])e.Data.GetData(DataFormats.FileDrop))
             {
                 try
@@ -306,6 +355,7 @@ namespace ModernFences
         // ------------------------------------------------------------------
         private void Header_MouseDown(object sender, MouseButtonEventArgs e)
         {
+            if (_data.Locked) return;
             if (e.ChangedButton == MouseButton.Left)
             {
                 try { DragMove(); } catch { }
@@ -314,17 +364,19 @@ namespace ModernFences
 
         private void ResizeRight_DragDelta(object sender, DragDeltaEventArgs e)
         {
+            if (_data.Locked) return;
             Width = Math.Max(MinWidth, Width + e.HorizontalChange);
         }
 
         private void ResizeBottom_DragDelta(object sender, DragDeltaEventArgs e)
         {
-            if (!_contentVisible) return;
+            if (_data.Locked || !_contentVisible) return;
             Height = Math.Max(90, Height + e.VerticalChange);
         }
 
         private void ResizeCorner_DragDelta(object sender, DragDeltaEventArgs e)
         {
+            if (_data.Locked) return;
             Width = Math.Max(MinWidth, Width + e.HorizontalChange);
             if (_contentVisible)
                 Height = Math.Max(90, Height + e.VerticalChange);
@@ -374,6 +426,22 @@ namespace ModernFences
             };
             menu.Items.Add(autoHideItem);
 
+            var lockItem = new MenuItem
+            {
+                Header = "Kilitle (taşıma/boyut kapalı)",
+                IsCheckable = true,
+                IsChecked = _data.Locked
+            };
+            lockItem.Click += (s, ev) => { _data.Locked = lockItem.IsChecked; _app.RequestSave(); };
+            menu.Items.Add(lockItem);
+
+            menu.Items.Add(new Separator());
+            if (!IsPortal)
+                menu.Items.Add(MenuItem2("Klasör Portalı Yap…", MakePortal));
+            else
+                menu.Items.Add(MenuItem2("Portalı Kaldır (normal çit)", RemovePortal));
+            menu.Items.Add(MenuItem2("Otomatik Kurallar…", () => RulesDialog.Show(this, _app)));
+
             var startItem = new MenuItem
             {
                 Header = "Windows ile Başlat",
@@ -411,6 +479,74 @@ namespace ModernFences
                 ApplyAppearance();
                 _app.RequestSave();
             });
+        }
+
+        // ------------------------------------------------------------------
+        //  FOLDER PORTAL
+        // ------------------------------------------------------------------
+        private void MakePortal()
+        {
+            string start = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            string path = PromptDialog.Show(
+                "Yansıtılacak klasörün tam yolu:\n(Explorer adres çubuğundan kopyalayabilirsin)",
+                "Klasör Portalı", start);
+            if (string.IsNullOrWhiteSpace(path)) return;
+            path = path.Trim().Trim('"');
+            if (!Directory.Exists(path))
+            {
+                MessageBox.Show("Klasör bulunamadı:\n" + path);
+                return;
+            }
+            _data.PortalPath = path;
+            string folderName = Path.GetFileName(path.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            _data.Title = string.IsNullOrEmpty(folderName) ? path : folderName;
+            BaslikYazi.Text = _data.Title;
+            _app.SaveConfig();
+            StartPortalWatcher();
+            LoadItems();
+        }
+
+        private void RemovePortal()
+        {
+            _data.PortalPath = "";
+            StopPortalWatcher();
+            _app.SaveConfig();
+            LoadItems();
+        }
+
+        private void StartPortalWatcher()
+        {
+            StopPortalWatcher();
+            if (!IsPortal || !Directory.Exists(_data.PortalPath)) return;
+            try
+            {
+                _portalWatcher = new System.IO.FileSystemWatcher(_data.PortalPath)
+                {
+                    IncludeSubdirectories = false,
+                    NotifyFilter = System.IO.NotifyFilters.FileName | System.IO.NotifyFilters.DirectoryName,
+                    EnableRaisingEvents = true
+                };
+                System.IO.FileSystemEventHandler h =
+                    (s, e) => Dispatcher.BeginInvoke(new Action(LoadItems));
+                _portalWatcher.Created += h;
+                _portalWatcher.Deleted += h;
+                _portalWatcher.Renamed += (s, e) => Dispatcher.BeginInvoke(new Action(LoadItems));
+            }
+            catch { }
+        }
+
+        private void StopPortalWatcher()
+        {
+            try
+            {
+                if (_portalWatcher != null)
+                {
+                    _portalWatcher.Dispose();
+                    _portalWatcher = null;
+                }
+            }
+            catch { }
         }
 
         // ------------------------------------------------------------------

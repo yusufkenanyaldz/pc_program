@@ -13,8 +13,15 @@ pencereden açılır, "Masaüstüne Çıkar" ile geri alınır.
 - 🖼️ **Gerçek Windows ikonları** — exe/excel/resim/klasör (`SHGetFileInfo`)
 - ↔️ **Taşıma** (başlıktan) + **kenardan boyutlandırma**
 - ⬍ **Aç/Kapat** (collapse)
-- 🎚️ **Ayarlar** (⋯ menüsü): renk (R/G/B), şeffaflık, genişlik/yükseklik — canlı önizleme
-- 🖱️ **Fare ile Aç/Kapat** — pencere kapalı durur, fare üzerine gelince içeriği açılır
+- 🎚️ **Ayarlar** (⋯ menüsü): renk (R/G/B), şeffaflık, genişlik/yükseklik,
+  **simge boyutu, köşe yuvarlaklığı, sıralama, kilit** — canlı önizleme
+- 🖱️ **Fare ile Aç/Kapat** — pencere kapalı durur, fare üzerine gelince açılır
+- 📁 **Folder Portal** — bir çiti gerçek bir klasöre bağla; içeriği canlı
+  gösterilir (FileSystemWatcher), dosya taşınmaz
+- 🤖 **Otomatik kurallar** — masaüstüne düşen dosyayı uzantısına göre doğru
+  çite otomatik taşır (⋯ → Otomatik Kurallar…)
+- ⌨️ **Kısayollar** — `Ctrl+Alt+H` tümünü gizle/göster · `Ctrl+Alt+F` öne
+  getir (peek)
 - ✏️ **Yeniden adlandırma** — pencere başlığı + öğeler
 - 🖱️ **Öğe menüsü:** Aç · Konumunu Aç · Yeniden Adlandır · Masaüstüne Çıkar · Diskten Sil
 - ⚙️ **Başlık ⋯ menüsü:** yeni pencere · Windows ile başlat · pencereyi kaldır · çıkış
