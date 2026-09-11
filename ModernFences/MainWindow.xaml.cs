@@ -55,6 +55,15 @@ namespace ModernFences
         {
             _peek = on;
             Topmost = on;
+            if (on)
+            {
+                if (!_contentVisible) SetContentVisible(true); // gizli/daralmış çiti aç
+            }
+            else
+            {
+                bool show = _data.AutoHide ? IsMouseOver : !_data.Collapsed;
+                SetContentVisible(show);
+            }
         }
 
         // Renk/şeffaflık/boyut/köşe + içerik durumunu uygula
@@ -230,7 +239,8 @@ namespace ModernFences
             menu.Items.Add(MenuItem2("Konumunu Aç", () => Reveal(path)));
             menu.Items.Add(MenuItem2("Yeniden Adlandır", () => RenameItem(path)));
             menu.Items.Add(new Separator());
-            menu.Items.Add(MenuItem2("Masaüstüne Çıkar", () => MoveToDesktop(path, card)));
+            if (!IsPortal) // portal canlı klasör görünümüdür; öğe koparılmaz
+                menu.Items.Add(MenuItem2("Masaüstüne Çıkar", () => MoveToDesktop(path, card)));
             menu.Items.Add(MenuItem2("Diskten Sil", () => DeleteFromDisk(path, card)));
             return menu;
         }

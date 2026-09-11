@@ -441,6 +441,37 @@ namespace ModernFences
             catch { }
         }
 
+        // Şu an masaüstünde DURAN dosyaları kurallara göre yerleştir
+        public int OrganizeExistingDesktop()
+        {
+            int moved = 0;
+            try
+            {
+                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                foreach (var file in Directory.GetFiles(desktop))
+                {
+                    string ext = Path.GetExtension(file);
+                    if (string.IsNullOrEmpty(ext)) continue;
+
+                    RuleData rule = null;
+                    foreach (var r in Config.Rules)
+                        if (string.Equals(r.Ext, ext, StringComparison.OrdinalIgnoreCase)) { rule = r; break; }
+                    if (rule == null) continue;
+
+                    FenceData target = null;
+                    foreach (var f in Config.Fences)
+                        if (f.Id == rule.TargetId && string.IsNullOrEmpty(f.PortalPath)) { target = f; break; }
+                    if (target == null) continue;
+
+                    string dst = Unique(Path.Combine(StorePathFor(target), Path.GetFileName(file)));
+                    try { File.Move(file, dst); moved++; RefreshFence(target.Id); }
+                    catch { }
+                }
+            }
+            catch { }
+            return moved;
+        }
+
         protected override void OnExit(ExitEventArgs e)
         {
             try
@@ -786,7 +817,7 @@ namespace ModernFences
             {
                 Title = "Otomatik Kurallar",
                 Width = 430,
-                Height = 430,
+                Height = 490,
                 WindowStartupLocation = WindowStartupLocation.CenterScreen,
                 ResizeMode = ResizeMode.NoResize,
                 WindowStyle = WindowStyle.ToolWindow,
@@ -870,6 +901,19 @@ namespace ModernFences
             addRow.Children.Add(fenceCombo);
             addRow.Children.Add(add);
             panel.Children.Add(addRow);
+
+            var applyNow = new Button
+            {
+                Content = "Masaüstündeki mevcut dosyaları şimdi düzenle",
+                Margin = new Thickness(0, 14, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            applyNow.Click += (s, e) =>
+            {
+                int n = app.OrganizeExistingDesktop();
+                MessageBox.Show(n + " dosya taşındı.", "Otomatik Kurallar");
+            };
+            panel.Children.Add(applyNow);
 
             var close = new Button
             {
