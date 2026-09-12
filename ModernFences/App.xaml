@@ -1,8 +1,9 @@
 <Application x:Class="ModernFences.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             ShutdownMode="OnLastWindowClose">
+             ShutdownMode="OnExplicitShutdown">
     <!-- StartupUri yok: pencereleri App.OnStartup içinde biz oluşturuyoruz.
-         Son pencere kapanınca uygulama kapanır (tepsi simgesi yok). -->
+         Tepsi simgesi olduğu için tüm pencereler kapansa bile uygulama
+         çalışmaya devam eder; çıkış tepsiden veya ⋯ menüsünden yapılır. -->
     <Application.Resources />
 </Application>

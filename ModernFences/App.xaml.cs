@@ -11,6 +11,8 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using Forms = System.Windows.Forms;
+using Drawing = System.Drawing;
 
 namespace ModernFences
 {
@@ -44,6 +46,9 @@ namespace ModernFences
 
         // Folder Portal: doluysa bu çit gerçek bir klasörü canlı yansıtır
         public string PortalPath = "";
+
+        // Elle sıralama (Sort==2) için öğe adlarının sırası
+        public List<string> Order = new List<string>();
     }
 
     public class RuleData
@@ -74,6 +79,7 @@ namespace ModernFences
         private readonly List<MainWindow> _windows = new List<MainWindow>();
         private DispatcherTimer _saveTimer;
         private bool _allHidden;
+        private Forms.NotifyIcon _tray;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -91,6 +97,69 @@ namespace ModernFences
             SaveConfig();
             SetupHotkeys();
             StartDesktopWatcher();
+            SetupTray();
+        }
+
+        // ================= TEPSİ (TRAY) SİMGESİ =================
+        private void SetupTray()
+        {
+            try
+            {
+                var menu = new Forms.ContextMenuStrip();
+                menu.Items.Add("Tümünü Göster").Click += (s, e) => ShowAllFences();
+                menu.Items.Add("Tümünü Gizle").Click += (s, e) => HideAllFences();
+                menu.Items.Add("Yeni Pencere").Click += (s, e) => NewFence();
+                menu.Items.Add(new Forms.ToolStripSeparator());
+                menu.Items.Add("Çıkış").Click += (s, e) => ExitApp();
+
+                _tray = new Forms.NotifyIcon
+                {
+                    Text = "Modern Fences",
+                    Icon = MakeTrayIcon(),
+                    Visible = true,
+                    ContextMenuStrip = menu
+                };
+                _tray.DoubleClick += (s, e) => ToggleHideAll();
+            }
+            catch { }
+        }
+
+        private void ShowAllFences()
+        {
+            _allHidden = false;
+            foreach (var w in _windows) w.Show();
+        }
+
+        private void HideAllFences()
+        {
+            _allHidden = true;
+            foreach (var w in _windows) w.Hide();
+        }
+
+        private void ExitApp()
+        {
+            SaveConfig();
+            Shutdown();
+        }
+
+        private static Drawing.Icon MakeTrayIcon()
+        {
+            var bmp = new Drawing.Bitmap(32, 32);
+            using (var g = Drawing.Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.Clear(Drawing.Color.Transparent);
+                using (var b = new Drawing.SolidBrush(Drawing.Color.FromArgb(59, 130, 246)))
+                    g.FillRectangle(b, 3, 5, 26, 22);
+                using (var b = new Drawing.SolidBrush(Drawing.Color.White))
+                {
+                    g.FillRectangle(b, 7, 10, 7, 5);
+                    g.FillRectangle(b, 18, 10, 7, 5);
+                    g.FillRectangle(b, 7, 18, 7, 5);
+                    g.FillRectangle(b, 18, 18, 7, 5);
+                }
+            }
+            return Drawing.Icon.FromHandle(bmp.GetHicon());
         }
 
         public IEnumerable<FenceData> AllFences { get { return Config.Fences; } }
@@ -214,6 +283,18 @@ namespace ModernFences
                                 TargetId = p[2]
                             });
                     }
+                    else if (line.StartsWith("ORDER|"))
+                    {
+                        var p = line.Split('|');
+                        if (p.Length >= 3)
+                        {
+                            FenceData f = null;
+                            foreach (var fd2 in cfg.Fences) if (fd2.Id == p[1]) { f = fd2; break; }
+                            if (f != null && p[2].Length > 0)
+                                foreach (var part in p[2].Split(','))
+                                    f.Order.Add(Uri.UnescapeDataString(part));
+                        }
+                    }
                     else if (line.StartsWith("FENCE|"))
                     {
                         var p = line.Split('|');
@@ -288,6 +369,13 @@ namespace ModernFences
                     sb.AppendLine(string.Join("|",
                         "RULE", Uri.EscapeDataString(r.Ext ?? ""), r.TargetId ?? ""));
                 }
+                foreach (var f in Config.Fences)
+                {
+                    if (f.Sort != 2 || f.Order == null || f.Order.Count == 0) continue;
+                    var esc = new List<string>();
+                    foreach (var n in f.Order) esc.Add(Uri.EscapeDataString(n));
+                    sb.AppendLine("ORDER|" + f.Id + "|" + string.Join(",", esc));
+                }
                 File.WriteAllText(ConfigPath, sb.ToString());
             }
             catch { }
@@ -360,12 +448,8 @@ namespace ModernFences
 
         public void ToggleHideAll()
         {
-            _allHidden = !_allHidden;
-            foreach (var w in _windows)
-            {
-                if (_allHidden) w.Hide();
-                else w.Show();
-            }
+            if (_allHidden) ShowAllFences();
+            else HideAllFences();
         }
 
         public void PeekAll()
@@ -483,6 +567,7 @@ namespace ModernFences
                     _hotkeySource.Dispose();
                 }
                 if (_desktopWatcher != null) _desktopWatcher.Dispose();
+                if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
             }
             catch { }
             base.OnExit(e);
@@ -598,7 +683,30 @@ namespace ModernFences
 
         private const uint SHGFI_ICON = 0x000000100;
         private const uint SHGFI_LARGEICON = 0x000000000;
+        private const uint SHGFI_SYSICONINDEX = 0x000004000;
+        private const int ILD_TRANSPARENT = 0x00000001;
+        private static Guid IID_IImageList = new Guid("46EB5926-582E-4017-9FDF-E8998DAA0950");
 
+        // Sistem görüntü listesinden büyük/jumbo ikon (IImageList). GetIcon 8. metod.
+        [DllImport("shell32.dll", EntryPoint = "#727")]
+        private static extern int SHGetImageList(int iImageList, ref Guid riid, out IImageList ppv);
+
+        [ComImport, Guid("46EB5926-582E-4017-9FDF-E8998DAA0950"),
+         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IImageList
+        {
+            [PreserveSig] int Add_();
+            [PreserveSig] int ReplaceIcon_();
+            [PreserveSig] int SetOverlayImage_();
+            [PreserveSig] int Replace_();
+            [PreserveSig] int AddMasked_();
+            [PreserveSig] int Draw_();
+            [PreserveSig] int Remove_();
+            [PreserveSig] int GetIcon(int i, int flags, ref IntPtr picon);
+            // (kalan metodlar gerekli değil)
+        }
+
+        // Küçük (32px) klasik yöntem — jumbo başarısız olursa yedek
         public static ImageSource GetIconSource(string path)
         {
             try
@@ -609,9 +717,83 @@ namespace ModernFences
                 if (info.hIcon == IntPtr.Zero) return null;
                 var src = Imaging.CreateBitmapSourceFromHIcon(
                     info.hIcon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                DestroyIcon(info.hIcon); // handle sızıntısını önle
+                DestroyIcon(info.hIcon);
                 src.Freeze();
                 return src;
+            }
+            catch { return null; }
+        }
+
+        // İstenen boyuta göre yüksek kaliteli ikon
+        public static ImageSource GetIconSource(string path, int size)
+        {
+            try
+            {
+                // 0=SHIL_LARGE(32) 1=SMALL(16) 2=EXTRALARGE(48) 4=JUMBO(256)
+                int shil = size <= 16 ? 1 : size <= 32 ? 0 : size <= 48 ? 2 : 4;
+
+                var shfi = new SHFILEINFO();
+                IntPtr r = SHGetFileInfo(path, 0, ref shfi,
+                    (uint)Marshal.SizeOf(shfi), SHGFI_SYSICONINDEX);
+                if (r == IntPtr.Zero) return GetIconSource(path);
+
+                IImageList iml;
+                if (SHGetImageList(shil, ref IID_IImageList, out iml) != 0 || iml == null)
+                    return GetIconSource(path);
+
+                IntPtr hicon = IntPtr.Zero;
+                if (iml.GetIcon(shfi.iIcon, ILD_TRANSPARENT, ref hicon) != 0 || hicon == IntPtr.Zero)
+                    return GetIconSource(path);
+
+                var src = Imaging.CreateBitmapSourceFromHIcon(
+                    hicon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                DestroyIcon(hicon);
+                src.Freeze();
+                return src;
+            }
+            catch { return GetIconSource(path); }
+        }
+
+        // ---- Klasör seçme penceresi (SHBrowseForFolder) ----
+        [DllImport("shell32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SHBrowseForFolder(ref BROWSEINFO lpbi);
+        [DllImport("shell32.dll", CharSet = CharSet.Auto)]
+        private static extern bool SHGetPathFromIDList(IntPtr pidl, System.Text.StringBuilder pszPath);
+        [DllImport("ole32.dll")]
+        private static extern void CoTaskMemFree(IntPtr pv);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private struct BROWSEINFO
+        {
+            public IntPtr hwndOwner;
+            public IntPtr pidlRoot;
+            public string pszDisplayName;
+            public string lpszTitle;
+            public uint ulFlags;
+            public IntPtr lpfn;
+            public IntPtr lParam;
+            public int iImage;
+        }
+
+        public static string PickFolder(string title)
+        {
+            try
+            {
+                var bi = new BROWSEINFO
+                {
+                    lpszTitle = title,
+                    // RETURNONLYFSDIRS | NEWDIALOGSTYLE | EDITBOX
+                    ulFlags = 0x00000001 | 0x00000040 | 0x00000010,
+                    pszDisplayName = new string('\0', 260)
+                };
+                IntPtr pidl = SHBrowseForFolder(ref bi);
+                if (pidl == IntPtr.Zero) return null;
+                try
+                {
+                    var sb = new System.Text.StringBuilder(260);
+                    return SHGetPathFromIDList(pidl, sb) ? sb.ToString() : null;
+                }
+                finally { CoTaskMemFree(pidl); }
             }
             catch { return null; }
         }
@@ -708,7 +890,8 @@ namespace ModernFences
             var sortCombo = new ComboBox { Margin = new Thickness(0, 4, 0, 0) };
             sortCombo.Items.Add("Ada göre sırala");
             sortCombo.Items.Add("Türe göre sırala");
-            sortCombo.SelectedIndex = d.Sort == 1 ? 1 : 0;
+            sortCombo.Items.Add("Elle sırala (sürükle)");
+            sortCombo.SelectedIndex = (d.Sort >= 0 && d.Sort <= 2) ? d.Sort : 0;
             panel.Children.Add(sortCombo);
 
             var lockChk = new CheckBox
@@ -742,7 +925,7 @@ namespace ModernFences
                 d.R = (int)rs.Value; d.G = (int)gs.Value; d.B = (int)bs.Value;
                 d.A = (int)a.Value; d.Width = (int)ws.Value; d.Height = (int)hs.Value;
                 d.IconSize = (int)ico.Value; d.Corner = (int)cor.Value;
-                d.Sort = sortCombo.SelectedIndex == 1 ? 1 : 0;
+                d.Sort = sortCombo.SelectedIndex < 0 ? 0 : sortCombo.SelectedIndex;
                 d.Locked = lockChk.IsChecked == true;
                 d.AutoHide = chk.IsChecked == true;
                 swatch.Background = new SolidColorBrush(

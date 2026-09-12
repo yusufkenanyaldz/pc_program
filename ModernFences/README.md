@@ -22,6 +22,10 @@ pencereden açılır, "Masaüstüne Çıkar" ile geri alınır.
   çite otomatik taşır (⋯ → Otomatik Kurallar…)
 - ⌨️ **Kısayollar** — `Ctrl+Alt+H` tümünü gizle/göster · `Ctrl+Alt+F` öne
   getir (peek)
+- 🔔 **Tepsi simgesi** — tümünü göster/gizle, yeni pencere, çıkış
+- ✨ **Yüksek kalite (jumbo) ikonlar** — büyük boyutlarda bile net
+- 📂 **Gerçek "Klasör Seç" penceresi** (portal için)
+- ↕️ **Öğeleri sürükleyerek yeniden dizme** (Ayarlar → "Elle sırala")
 - ✏️ **Yeniden adlandırma** — pencere başlığı + öğeler
 - 🖱️ **Öğe menüsü:** Aç · Konumunu Aç · Yeniden Adlandır · Masaüstüne Çıkar · Diskten Sil
 - ⚙️ **Başlık ⋯ menüsü:** yeni pencere · Windows ile başlat · pencereyi kaldır · çıkış
@@ -37,9 +41,12 @@ başlık `⋯` menüsünden yapılır.
 
 ## Kurulum (.NET Framework projesinde)
 
-Sadece şu **4 dosyanın içeriğini** repodakiyle değiştir:
-`App.xaml`, `App.xaml.cs`, `MainWindow.xaml`, `MainWindow.xaml.cs`.
-Sonra **Derle → F5**. `.csproj`'a veya `app.manifest`'e dokunmana gerek yok.
+1. Şu **4 dosyanın içeriğini** repodakiyle değiştir: `App.xaml`,
+   `App.xaml.cs`, `MainWindow.xaml`, `MainWindow.xaml.cs`.
+2. Tepsi simgesi için **iki referans ekle** (Solution Explorer → References →
+   Add Reference → Assemblies → Framework): **`System.Windows.Forms`** ve
+   **`System.Drawing`** (ikisini işaretle).
+3. **Derle → F5.**
 
 ## Depolama
 

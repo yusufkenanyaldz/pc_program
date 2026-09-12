@@ -19,6 +19,11 @@ namespace ModernFences
         private bool _peek;
         private System.IO.FileSystemWatcher _portalWatcher;
 
+        // öğe sürükle-bırak (yeniden dizme)
+        private Point _dragStart;
+        private string _dragCandidate;
+        private bool _didDrag;
+
         private static readonly Brush CardHover = new SolidColorBrush(Color.FromArgb(48, 255, 255, 255));
 
         public FenceData Data { get { return _data; } }
@@ -147,14 +152,31 @@ namespace ModernFences
 
             var dirs = Directory.GetDirectories(source);
             var files = Directory.GetFiles(source);
-            Array.Sort(dirs, CompareEntries);
-            Array.Sort(files, CompareEntries);
 
-            bool any = false;
-            foreach (var dir in dirs) { AddCard(dir); any = true; }
-            foreach (var file in files) { AddCard(file); any = true; }
+            var entries = new System.Collections.Generic.List<string>();
+            if (_data.Sort == 2) // elle sıralama
+            {
+                entries.AddRange(dirs);
+                entries.AddRange(files);
+                entries.Sort((x, y) => OrderIndex(x).CompareTo(OrderIndex(y)));
+            }
+            else
+            {
+                Array.Sort(dirs, CompareEntries);
+                Array.Sort(files, CompareEntries);
+                entries.AddRange(dirs);
+                entries.AddRange(files);
+            }
 
-            if (!any) ShowHint("Program, klasör veya dosyaları buraya sürükleyin");
+            foreach (var e in entries) AddCard(e);
+            if (entries.Count == 0)
+                ShowHint("Program, klasör veya dosyaları buraya sürükleyin");
+        }
+
+        private int OrderIndex(string path)
+        {
+            int i = _data.Order.IndexOf(Path.GetFileName(path));
+            return i < 0 ? int.MaxValue : i;
         }
 
         private int CompareEntries(string a, string b)
@@ -195,7 +217,8 @@ namespace ModernFences
                 Background = Brushes.Transparent,
                 Margin = new Thickness(4),
                 Cursor = Cursors.Hand,
-                Tag = path
+                Tag = path,
+                AllowDrop = true
             };
 
             var sp = new StackPanel { Margin = new Thickness(4) };
@@ -205,7 +228,7 @@ namespace ModernFences
                 Width = isz,
                 Height = isz,
                 Margin = new Thickness(0, 4, 0, 6),
-                Source = Native.GetIconSource(path)
+                Source = Native.GetIconSource(path, isz)
             };
 
             var txt = new TextBlock
@@ -226,7 +249,43 @@ namespace ModernFences
 
             card.MouseEnter += (s, e) => card.Background = CardHover;
             card.MouseLeave += (s, e) => card.Background = Brushes.Transparent;
-            card.MouseLeftButtonUp += (s, e) => Open(path);
+
+            // sürükleyerek yeniden dizme
+            card.PreviewMouseLeftButtonDown += (s, e) =>
+            {
+                _dragStart = e.GetPosition(null);
+                _dragCandidate = path;
+                _didDrag = false;
+            };
+            card.PreviewMouseMove += (s, e) =>
+            {
+                if (e.LeftButton != MouseButtonState.Pressed || _dragCandidate != path) return;
+                Vector diff = e.GetPosition(null) - _dragStart;
+                if (Math.Abs(diff.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                    Math.Abs(diff.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+                _didDrag = true;
+                try { DragDrop.DoDragDrop(card, new DataObject("MF_ITEM", path), DragDropEffects.Move); }
+                catch { }
+                _dragCandidate = null;
+            };
+            card.DragOver += (s, e) =>
+            {
+                if (e.Data.GetDataPresent("MF_ITEM")) { e.Effects = DragDropEffects.Move; e.Handled = true; }
+            };
+            card.Drop += (s, e) =>
+            {
+                if (e.Data.GetDataPresent("MF_ITEM"))
+                {
+                    ReorderItems((string)e.Data.GetData("MF_ITEM"), path);
+                    e.Handled = true;
+                }
+            };
+            card.MouseLeftButtonUp += (s, e) =>
+            {
+                if (_didDrag) { _didDrag = false; return; } // sürüklemeydi, açma
+                Open(path);
+            };
+
             card.ContextMenu = BuildItemMenu(path, card);
 
             IkonPaneli.Children.Add(card);
@@ -322,6 +381,27 @@ namespace ModernFences
             foreach (var c in IkonPaneli.Children)
                 if (c is Border) { any = true; break; }
             if (!any) ShowHint("Program, klasör veya dosyaları buraya sürükleyin");
+        }
+
+        private void ReorderItems(string fromPath, string toPath)
+        {
+            if (string.IsNullOrEmpty(fromPath) || fromPath == toPath) return;
+            _data.Sort = 2; // elle
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var c in IkonPaneli.Children)
+            {
+                var b = c as Border;
+                if (b != null && b.Tag is string) names.Add(Path.GetFileName((string)b.Tag));
+            }
+            string fromName = Path.GetFileName(fromPath);
+            string toName = Path.GetFileName(toPath);
+            names.Remove(fromName);
+            int idx = names.IndexOf(toName);
+            if (idx < 0) idx = names.Count;
+            names.Insert(idx, fromName);
+            _data.Order = names;
+            _app.SaveConfig();
+            LoadItems();
         }
 
         // ------------------------------------------------------------------
@@ -496,10 +576,15 @@ namespace ModernFences
         // ------------------------------------------------------------------
         private void MakePortal()
         {
-            string start = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            string path = PromptDialog.Show(
-                "Yansıtılacak klasörün tam yolu:\n(Explorer adres çubuğundan kopyalayabilirsin)",
-                "Klasör Portalı", start);
+            // Önce gerçek "Klasör Seç" penceresi; olmazsa yol yapıştırma
+            string path = Native.PickFolder("Yansıtılacak klasörü seç");
+            if (string.IsNullOrEmpty(path))
+            {
+                string start = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                path = PromptDialog.Show(
+                    "Yansıtılacak klasörün tam yolu:\n(Explorer adres çubuğundan kopyalayabilirsin)",
+                    "Klasör Portalı", start);
+            }
             if (string.IsNullOrWhiteSpace(path)) return;
             path = path.Trim().Trim('"');
             if (!Directory.Exists(path))
