@@ -30,6 +30,43 @@ namespace ModernFences
         public void ReloadItems() { LoadItems(); }
 
         private bool IsPortal { get { return !string.IsNullOrEmpty(_data.PortalPath); } }
+        private bool IsGrouped { get { return !string.IsNullOrEmpty(_data.GroupId); } }
+
+        public void SetBoundsFromData()
+        {
+            Left = _data.X;
+            Top = _data.Y;
+            Width = _data.Width;
+            if (_contentVisible) Height = _data.Height;
+        }
+
+        // Sekme şeridini güncelle (grup üyeleri)
+        public void RefreshTabs()
+        {
+            if (TabStrip == null) return;
+            TabStrip.Children.Clear();
+            var members = _app.GroupMembers(_data.GroupId);
+            if (members.Count <= 1) { TabStrip.Visibility = Visibility.Collapsed; return; }
+            TabStrip.Visibility = Visibility.Visible;
+            foreach (var m in members)
+            {
+                string tid = m.Id;
+                var b = new Button
+                {
+                    Content = string.IsNullOrEmpty(m.Title) ? "•" : m.Title,
+                    Foreground = Brushes.White,
+                    Background = (m.Id == _data.Id)
+                        ? new SolidColorBrush(Color.FromArgb(80, 255, 255, 255))
+                        : Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    Padding = new Thickness(8, 2, 8, 2),
+                    Cursor = Cursors.Hand,
+                    FontSize = 11
+                };
+                b.Click += (s, e) => _app.ShowTab(_data.GroupId, tid, Left, Top, Width, _data.Height);
+                TabStrip.Children.Add(b);
+            }
+        }
 
         public MainWindow(App app, FenceData data)
         {
@@ -79,6 +116,7 @@ namespace ModernFences
             RootBorder.CornerRadius = new CornerRadius(_data.Corner);
             Width = _data.Width;
 
+            RefreshTabs();
             LoadItems();
 
             bool show;
@@ -223,13 +261,25 @@ namespace ModernFences
 
             var sp = new StackPanel { Margin = new Thickness(4) };
 
-            var img = new Image
+            var src = Native.GetIconSource(path, isz);
+            FrameworkElement icon;
+            if (_data.IconTint && src != null)
             {
-                Width = isz,
-                Height = isz,
-                Margin = new Thickness(0, 4, 0, 6),
-                Source = Native.GetIconSource(path, isz)
-            };
+                // Icon Tint: simgeyi tek renk (beyaz) siluete çevir
+                icon = new System.Windows.Shapes.Rectangle
+                {
+                    Width = isz,
+                    Height = isz,
+                    Fill = Brushes.White,
+                    OpacityMask = new ImageBrush(src) { Stretch = Stretch.Uniform }
+                };
+            }
+            else
+            {
+                icon = new Image { Width = isz, Height = isz, Source = src };
+            }
+            icon.Margin = new Thickness(0, 4, 0, 6);
+            icon.Opacity = Math.Max(0.1, _data.IconFade / 100.0); // Chameleon: soluklaştır
 
             var txt = new TextBlock
             {
@@ -242,7 +292,7 @@ namespace ModernFences
                 FontSize = 10
             };
 
-            sp.Children.Add(img);
+            sp.Children.Add(icon);
             sp.Children.Add(txt);
             card.Child = sp;
             card.ToolTip = Path.GetFileName(path);
@@ -563,6 +613,43 @@ namespace ModernFences
             else
                 menu.Items.Add(MenuItem2("Portalı Kaldır (normal çit)", RemovePortal));
             menu.Items.Add(MenuItem2("Otomatik Kurallar…", () => RulesDialog.Show(this, _app)));
+
+            // --- Sekmeler ---
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItem2("Yeni Sekme", () => _app.AddTab(_data, Left, Top, Width, _data.Height)));
+            if (IsGrouped)
+            {
+                var tabsSub = new MenuItem { Header = "Sekmeye Geç" };
+                foreach (var m in _app.GroupMembers(_data.GroupId))
+                {
+                    string tid = m.Id;
+                    tabsSub.Items.Add(MenuItem2(m.Title,
+                        () => _app.ShowTab(_data.GroupId, tid, Left, Top, Width, _data.Height)));
+                }
+                menu.Items.Add(tabsSub);
+                menu.Items.Add(MenuItem2("Sekmeyi Ayır", () =>
+                {
+                    _data.GroupId = "";
+                    _app.SaveConfig();
+                    RefreshTabs();
+                }));
+            }
+
+            // --- Masaüstü sayfası ---
+            var pageSub = new MenuItem { Header = "Sayfaya Taşı" };
+            for (int i = 0; i < 5; i++)
+            {
+                int pg = i;
+                var it = new MenuItem { Header = "Sayfa " + (pg + 1), IsCheckable = true, IsChecked = _data.Page == pg };
+                it.Click += (s, ev) =>
+                {
+                    _data.Page = pg;
+                    _app.SaveConfig();
+                    _app.ApplyPageVisibility();
+                };
+                pageSub.Items.Add(it);
+            }
+            menu.Items.Add(pageSub);
 
             var startItem = new MenuItem
             {

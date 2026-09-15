@@ -54,12 +54,17 @@
         <Border x:Name="RootBorder" Background="#33000000" CornerRadius="10" ClipToBounds="True">
             <Grid>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="40"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
+                <!-- Sekme şeridi (yalnızca grup varsa görünür) -->
+                <StackPanel x:Name="TabStrip" Grid.Row="0" Orientation="Horizontal"
+                            Background="#33000000" Visibility="Collapsed"/>
+
                 <!-- Sürüklenebilir başlık. Sağ tık: menü. Düğmeler fareyle görünür. -->
-                <Grid x:Name="HeaderBar" Background="#22FFFFFF"
+                <Grid x:Name="HeaderBar" Grid.Row="1" Background="#22FFFFFF"
                       MouseLeftButtonDown="Header_MouseDown"
                       MouseRightButtonUp="Header_RightClick"
                       MouseEnter="Header_HoverIn" MouseLeave="Header_HoverOut">
@@ -79,7 +84,7 @@
                 </Grid>
 
                 <!-- İkon alanı -->
-                <ScrollViewer x:Name="Icerik" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="Icerik" Grid.Row="2" VerticalScrollBarVisibility="Auto">
                     <WrapPanel x:Name="IkonPaneli" Margin="8"/>
                 </ScrollViewer>
             </Grid>

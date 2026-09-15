@@ -22,10 +22,16 @@ pencereden açılır, "Masaüstüne Çıkar" ile geri alınır.
   çite otomatik taşır (⋯ → Otomatik Kurallar…)
 - ⌨️ **Kısayollar** — `Ctrl+Alt+H` tümünü gizle/göster · `Ctrl+Alt+F` öne
   getir (peek)
-- 🔔 **Tepsi simgesi** — tümünü göster/gizle, yeni pencere, çıkış
+- 🔔 **Tepsi simgesi** — tümünü göster/gizle, yeni pencere, sayfa, snapshot, çıkış
 - ✨ **Yüksek kalite (jumbo) ikonlar** — büyük boyutlarda bile net
 - 📂 **Gerçek "Klasör Seç" penceresi** (portal için)
 - ↕️ **Öğeleri sürükleyerek yeniden dizme** (Ayarlar → "Elle sırala")
+- 🗂️ **Sekmeler** — bir kutuda birden çok çit (sağ tık → Yeni Sekme)
+- 📸 **Anlık görüntü (snapshot)** — düzeni kaydet/geri yükle (tepsi menüsü)
+- 🖱️ **Masaüstüne çift tıkla hepsini gizle** (tepsi menüsünden aç)
+- 🎨 **Icon Tint / Chameleon** — simgeleri tek renk yap / soluklaştır (Ayarlar)
+- 📄 **Masaüstü sayfaları** — çitleri sayfalara ayır (tepsi/sağ tık)
+- 🔤 **Ad-kalıbı kuralları** — `ekran*` gibi (Otomatik Kurallar)
 - ✏️ **Yeniden adlandırma** — pencere başlığı + öğeler
 - 🖱️ **Öğe menüsü:** Aç · Konumunu Aç · Yeniden Adlandır · Masaüstüne Çıkar · Diskten Sil
 - ⚙️ **Başlık ⋯ menüsü:** yeni pencere · Windows ile başlat · pencereyi kaldır · çıkış

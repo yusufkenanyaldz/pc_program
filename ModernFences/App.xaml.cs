@@ -49,12 +49,21 @@ namespace ModernFences
 
         // Elle sıralama (Sort==2) için öğe adlarının sırası
         public List<string> Order = new List<string>();
+
+        // Masaüstü sayfası (0..N)
+        public int Page = 0;
+        // Sekme grubu (aynı GroupId olanlar tek kutuda sekme). "" = bağımsız
+        public string GroupId = "";
+        // Icon Tint / Chameleon
+        public bool IconTint = false;  // simgeleri tek renk (beyaz) yap
+        public int IconFade = 100;     // simge opaklığı 0..100 (Chameleon)
     }
 
     public class RuleData
     {
-        public string Ext = "";       // örn ".png"
+        public string Ext = "";       // örn ".png" (boşsa uzantıya bakma)
         public string TargetId = "";  // hedef çit Id
+        public string Pattern = "";   // ad kalıbı örn "ekran*" (boşsa ada bakma)
     }
 
     public class AppConfig
@@ -62,6 +71,8 @@ namespace ModernFences
         public List<FenceData> Fences = new List<FenceData>();
         public List<RuleData> Rules = new List<RuleData>();
         public bool StartWithWindows = false;
+        public int CurrentPage = 0;        // aktif masaüstü sayfası
+        public bool DoubleClickHide = false; // masaüstüne çift tıkla gizle
     }
 
     // =====================================================================
@@ -98,6 +109,8 @@ namespace ModernFences
             SetupHotkeys();
             StartDesktopWatcher();
             SetupTray();
+            if (Config.DoubleClickHide) InstallMouseHook();
+            ApplyPageVisibility();
         }
 
         // ================= TEPSİ (TRAY) SİMGESİ =================
@@ -109,6 +122,34 @@ namespace ModernFences
                 menu.Items.Add("Tümünü Göster").Click += (s, e) => ShowAllFences();
                 menu.Items.Add("Tümünü Gizle").Click += (s, e) => HideAllFences();
                 menu.Items.Add("Yeni Pencere").Click += (s, e) => NewFence();
+
+                // Sayfa alt menüsü
+                var pageMenu = new Forms.ToolStripMenuItem("Masaüstü Sayfası");
+                for (int i = 0; i < 5; i++)
+                {
+                    int pg = i;
+                    var it = new Forms.ToolStripMenuItem("Sayfa " + (pg + 1));
+                    it.Click += (s, e) => ShowPage(pg);
+                    pageMenu.DropDownItems.Add(it);
+                }
+                menu.Items.Add(pageMenu);
+
+                menu.Items.Add("Anlık Görüntü…").Click += (s, e) =>
+                    SnapshotDialog.Show(this);
+
+                var dbl = new Forms.ToolStripMenuItem("Masaüstüne çift tıkla gizle")
+                {
+                    Checked = Config.DoubleClickHide,
+                    CheckOnClick = true
+                };
+                dbl.Click += (s, e) =>
+                {
+                    Config.DoubleClickHide = dbl.Checked;
+                    if (dbl.Checked) InstallMouseHook(); else RemoveMouseHook();
+                    SaveConfig();
+                };
+                menu.Items.Add(dbl);
+
                 menu.Items.Add(new Forms.ToolStripSeparator());
                 menu.Items.Add("Çıkış").Click += (s, e) => ExitApp();
 
@@ -191,7 +232,8 @@ namespace ModernFences
             {
                 Title = "YENİ PENCERE",
                 X = 240 + _windows.Count * 32,
-                Y = 140 + _windows.Count * 32
+                Y = 140 + _windows.Count * 32,
+                Page = Config.CurrentPage
             };
             Config.Fences.Add(d);
             OpenFence(d);
@@ -273,6 +315,14 @@ namespace ModernFences
                     {
                         cfg.StartWithWindows = line.EndsWith("1");
                     }
+                    else if (line.StartsWith("CURRENTPAGE="))
+                    {
+                        cfg.CurrentPage = ParseInt(line.Substring("CURRENTPAGE=".Length), 0);
+                    }
+                    else if (line.StartsWith("DBLCLICKHIDE="))
+                    {
+                        cfg.DoubleClickHide = line.EndsWith("1");
+                    }
                     else if (line.StartsWith("RULE|"))
                     {
                         var p = line.Split('|');
@@ -280,7 +330,8 @@ namespace ModernFences
                             cfg.Rules.Add(new RuleData
                             {
                                 Ext = Uri.UnescapeDataString(p[1]),
-                                TargetId = p[2]
+                                TargetId = p[2],
+                                Pattern = p.Length >= 4 ? Uri.UnescapeDataString(p[3]) : ""
                             });
                     }
                     else if (line.StartsWith("ORDER|"))
@@ -327,6 +378,13 @@ namespace ModernFences
                                 fd.Sort = ParseInt(p[16], 0);
                                 fd.PortalPath = Uri.UnescapeDataString(p[17]);
                             }
+                            if (p.Length >= 22)
+                            {
+                                fd.Page = ParseInt(p[18], 0);
+                                fd.GroupId = Uri.UnescapeDataString(p[19]);
+                                fd.IconTint = p[20] == "1";
+                                fd.IconFade = ParseInt(p[21], 100);
+                            }
                             cfg.Fences.Add(fd);
                         }
                     }
@@ -342,6 +400,8 @@ namespace ModernFences
             {
                 var sb = new StringBuilder();
                 sb.AppendLine("STARTWITHWINDOWS=" + (Config.StartWithWindows ? "1" : "0"));
+                sb.AppendLine("CURRENTPAGE=" + Config.CurrentPage);
+                sb.AppendLine("DBLCLICKHIDE=" + (Config.DoubleClickHide ? "1" : "0"));
                 foreach (var f in Config.Fences)
                 {
                     sb.AppendLine(string.Join("|",
@@ -362,12 +422,17 @@ namespace ModernFences
                         f.Corner.ToString(),
                         f.Locked ? "1" : "0",
                         f.Sort.ToString(),
-                        Uri.EscapeDataString(f.PortalPath ?? "")));
+                        Uri.EscapeDataString(f.PortalPath ?? ""),
+                        f.Page.ToString(),
+                        Uri.EscapeDataString(f.GroupId ?? ""),
+                        f.IconTint ? "1" : "0",
+                        f.IconFade.ToString()));
                 }
                 foreach (var r in Config.Rules)
                 {
                     sb.AppendLine(string.Join("|",
-                        "RULE", Uri.EscapeDataString(r.Ext ?? ""), r.TargetId ?? ""));
+                        "RULE", Uri.EscapeDataString(r.Ext ?? ""), r.TargetId ?? "",
+                        Uri.EscapeDataString(r.Pattern ?? "")));
                 }
                 foreach (var f in Config.Fences)
                 {
@@ -497,12 +562,11 @@ namespace ModernFences
             // Watcher arka plan iş parçacığında çalışır.
             try
             {
-                string ext = Directory.Exists(path) ? "" : Path.GetExtension(path);
-                if (string.IsNullOrEmpty(ext)) return;
+                if (Directory.Exists(path)) return; // sadece dosyalar
 
                 RuleData rule = null;
                 foreach (var r in Config.Rules)
-                    if (string.Equals(r.Ext, ext, StringComparison.OrdinalIgnoreCase)) { rule = r; break; }
+                    if (RuleMatches(r, path)) { rule = r; break; }
                 if (rule == null) return;
 
                 FenceData target = null;
@@ -534,12 +598,9 @@ namespace ModernFences
                 string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
                 foreach (var file in Directory.GetFiles(desktop))
                 {
-                    string ext = Path.GetExtension(file);
-                    if (string.IsNullOrEmpty(ext)) continue;
-
                     RuleData rule = null;
                     foreach (var r in Config.Rules)
-                        if (string.Equals(r.Ext, ext, StringComparison.OrdinalIgnoreCase)) { rule = r; break; }
+                        if (RuleMatches(r, file)) { rule = r; break; }
                     if (rule == null) continue;
 
                     FenceData target = null;
@@ -556,10 +617,249 @@ namespace ModernFences
             return moved;
         }
 
+        // Bir kural bu yola uyuyor mu? (uzantı ve/veya ad kalıbı)
+        private static bool RuleMatches(RuleData r, string path)
+        {
+            bool hasExt = !string.IsNullOrEmpty(r.Ext);
+            bool hasPat = !string.IsNullOrEmpty(r.Pattern);
+            if (!hasExt && !hasPat) return false;
+            if (hasExt && !string.Equals(r.Ext, Path.GetExtension(path),
+                    StringComparison.OrdinalIgnoreCase)) return false;
+            if (hasPat && !WildcardMatch(r.Pattern, Path.GetFileName(path))) return false;
+            return true;
+        }
+
+        private static bool WildcardMatch(string pattern, string text)
+        {
+            try
+            {
+                string rx = "^" + System.Text.RegularExpressions.Regex.Escape(pattern)
+                    .Replace("\\*", ".*").Replace("\\?", ".") + "$";
+                return System.Text.RegularExpressions.Regex.IsMatch(text, rx,
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        // ================= MASAÜSTÜ SAYFALARI + SEKME GÖRÜNÜRLÜĞÜ =================
+        public void ApplyPageVisibility()
+        {
+            var shownGroups = new HashSet<string>();
+            foreach (var w in _windows)
+            {
+                var d = w.Data;
+                bool vis = !_allHidden && d.Page == Config.CurrentPage;
+                if (vis && !string.IsNullOrEmpty(d.GroupId))
+                {
+                    if (shownGroups.Contains(d.GroupId)) vis = false;   // grupta tek üye görünür
+                    else shownGroups.Add(d.GroupId);
+                }
+                if (vis) w.Show(); else w.Hide();
+                w.RefreshTabs();
+            }
+        }
+
+        public void ShowPage(int page)
+        {
+            Config.CurrentPage = page;
+            _allHidden = false;
+            ApplyPageVisibility();
+            SaveConfig();
+        }
+
+        // ================= ANLIK GÖRÜNTÜ (SNAPSHOT) =================
+        private static readonly string SnapshotsDir = Path.Combine(BaseDir, "Snapshots");
+
+        public void SaveSnapshot(string name)
+        {
+            try
+            {
+                Directory.CreateDirectory(SnapshotsDir);
+                SaveConfig();
+                File.Copy(ConfigPath, Path.Combine(SnapshotsDir, name + ".txt"), true);
+            }
+            catch { }
+        }
+
+        public List<string> GetSnapshots()
+        {
+            var list = new List<string>();
+            try
+            {
+                if (Directory.Exists(SnapshotsDir))
+                    foreach (var f in Directory.GetFiles(SnapshotsDir, "*.txt"))
+                        list.Add(Path.GetFileNameWithoutExtension(f));
+            }
+            catch { }
+            return list;
+        }
+
+        public void DeleteSnapshot(string name)
+        {
+            try { File.Delete(Path.Combine(SnapshotsDir, name + ".txt")); } catch { }
+        }
+
+        public void RestoreSnapshot(string name)
+        {
+            try
+            {
+                string snap = Path.Combine(SnapshotsDir, name + ".txt");
+                if (!File.Exists(snap)) return;
+                File.Copy(snap, ConfigPath, true);
+                ReloadAll();
+            }
+            catch { }
+        }
+
+        public void ReloadAll()
+        {
+            foreach (var w in _windows.ToArray()) w.Close();
+            _windows.Clear();
+            Config = LoadConfig();
+            if (Config.Fences.Count == 0) Config.Fences.Add(new FenceData());
+            foreach (var d in Config.Fences.ToArray()) OpenFence(d);
+            ApplyPageVisibility();
+            RestartDesktopWatcher();
+        }
+
+        // ================= SEKMELER =================
+        // Bir gruptaki üyeleri döndürür
+        public List<FenceData> GroupMembers(string groupId)
+        {
+            var list = new List<FenceData>();
+            if (string.IsNullOrEmpty(groupId)) return list;
+            foreach (var f in Config.Fences)
+                if (f.GroupId == groupId) list.Add(f);
+            return list;
+        }
+
+        // Gruptaki hedef sekmeyi göster, diğerlerini gizle (aynı konum/boyutta)
+        public void ShowTab(string groupId, string targetId, double x, double y, double w, double h)
+        {
+            foreach (var win in _windows)
+            {
+                if (win.Data.GroupId != groupId) continue;
+                if (win.Data.Id == targetId)
+                {
+                    win.Data.X = (int)x; win.Data.Y = (int)y;
+                    win.Data.Width = (int)w; win.Data.Height = (int)h;
+                    win.SetBoundsFromData();
+                    win.Show();
+                    win.RefreshTabs();
+                }
+                else win.Hide();
+            }
+            SaveConfig();
+        }
+
+        // Yeni sekme: kaynağın grubuna yeni bir çit ekle
+        public void AddTab(FenceData source, double x, double y, double w, double h)
+        {
+            if (string.IsNullOrEmpty(source.GroupId))
+                source.GroupId = Guid.NewGuid().ToString("N");
+            var d = new FenceData
+            {
+                Title = "SEKME",
+                GroupId = source.GroupId,
+                Page = source.Page,
+                X = (int)x, Y = (int)y, Width = (int)w, Height = (int)h
+            };
+            Config.Fences.Add(d);
+            OpenFence(d);
+            ShowTab(source.GroupId, d.Id, x, y, w, h);
+            SaveConfig();
+        }
+
+        // ================= MASAÜSTÜNE ÇİFT TIK → GİZLE =================
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+        [DllImport("user32.dll")]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+        [DllImport("user32.dll")]
+        private static extern IntPtr WindowFromPoint(POINT p);
+        [DllImport("user32.dll")]
+        private static extern bool GetCursorPos(out POINT p);
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder buf, int max);
+        [DllImport("user32.dll")]
+        private static extern uint GetDoubleClickTime();
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT { public int X; public int Y; }
+
+        private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+        private LowLevelMouseProc _mouseProc;
+        private IntPtr _mouseHook = IntPtr.Zero;
+        private int _lastDownTick;
+        private const int WH_MOUSE_LL = 14;
+        private const int WM_LBUTTONDOWN = 0x0201;
+
+        private void InstallMouseHook()
+        {
+            try
+            {
+                if (_mouseHook != IntPtr.Zero) return;
+                _mouseProc = MouseHookProc;
+                _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc,
+                    GetModuleHandle(null), 0);
+            }
+            catch { }
+        }
+
+        private void RemoveMouseHook()
+        {
+            try
+            {
+                if (_mouseHook != IntPtr.Zero) { UnhookWindowsHookEx(_mouseHook); _mouseHook = IntPtr.Zero; }
+            }
+            catch { }
+        }
+
+        private IntPtr MouseHookProc(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            try
+            {
+                if (nCode >= 0 && wParam.ToInt32() == WM_LBUTTONDOWN && Config.DoubleClickHide)
+                {
+                    int now = Environment.TickCount;
+                    if (now - _lastDownTick <= (int)GetDoubleClickTime())
+                    {
+                        _lastDownTick = 0;
+                        if (IsDesktopUnderCursor())
+                            Dispatcher.BeginInvoke(new Action(ToggleHideAll));
+                    }
+                    else _lastDownTick = now;
+                }
+            }
+            catch { }
+            return CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+        }
+
+        private static bool IsDesktopUnderCursor()
+        {
+            try
+            {
+                POINT p;
+                if (!GetCursorPos(out p)) return false;
+                IntPtr h = WindowFromPoint(p);
+                var sb = new System.Text.StringBuilder(64);
+                GetClassName(h, sb, sb.Capacity);
+                string cls = sb.ToString();
+                return cls == "SysListView32" || cls == "SHELLDLL_DefView" ||
+                       cls == "Progman" || cls == "WorkerW";
+            }
+            catch { return false; }
+        }
+
         protected override void OnExit(ExitEventArgs e)
         {
             try
             {
+                if (_mouseHook != IntPtr.Zero) UnhookWindowsHookEx(_mouseHook);
                 if (_hotkeySource != null)
                 {
                     UnregisterHotKey(_hotkeySource.Handle, HK_HIDE);
@@ -910,6 +1210,16 @@ namespace ModernFences
             };
             panel.Children.Add(chk);
 
+            panel.Children.Add(Section("Simge rengi (Tint / Chameleon)"));
+            var tintChk = new CheckBox
+            {
+                Content = "Simgeleri tek renk (beyaz) yap",
+                IsChecked = d.IconTint
+            };
+            panel.Children.Add(tintChk);
+            var fade = MakeSlider(10, 100, d.IconFade);
+            panel.Children.Add(Row("Simge opaklığı", fade));
+
             var swatch = new Border
             {
                 Height = 26,
@@ -928,6 +1238,8 @@ namespace ModernFences
                 d.Sort = sortCombo.SelectedIndex < 0 ? 0 : sortCombo.SelectedIndex;
                 d.Locked = lockChk.IsChecked == true;
                 d.AutoHide = chk.IsChecked == true;
+                d.IconTint = tintChk.IsChecked == true;
+                d.IconFade = (int)fade.Value;
                 swatch.Background = new SolidColorBrush(
                     Color.FromArgb((byte)d.A, (byte)d.R, (byte)d.G, (byte)d.B));
                 apply();
@@ -937,11 +1249,14 @@ namespace ModernFences
             rs.ValueChanged += onChange; gs.ValueChanged += onChange; bs.ValueChanged += onChange;
             a.ValueChanged += onChange; ws.ValueChanged += onChange; hs.ValueChanged += onChange;
             ico.ValueChanged += onChange; cor.ValueChanged += onChange;
+            fade.ValueChanged += onChange;
             sortCombo.SelectionChanged += (s, e) => update();
             lockChk.Checked += (s, e) => update();
             lockChk.Unchecked += (s, e) => update();
             chk.Checked += (s, e) => update();
             chk.Unchecked += (s, e) => update();
+            tintChk.Checked += (s, e) => update();
+            tintChk.Unchecked += (s, e) => update();
 
             var close = new Button
             {
@@ -1028,7 +1343,12 @@ namespace ModernFences
             {
                 list.Items.Clear();
                 foreach (var r in app.Config.Rules)
-                    list.Items.Add(r.Ext + "  →  " + titleOf(r.TargetId));
+                {
+                    string crit = r.Ext;
+                    if (!string.IsNullOrEmpty(r.Pattern))
+                        crit = (string.IsNullOrEmpty(crit) ? "" : crit + " ") + r.Pattern;
+                    list.Items.Add(crit + "  →  " + titleOf(r.TargetId));
+                }
             };
             refresh();
 
@@ -1060,27 +1380,30 @@ namespace ModernFences
             });
 
             var addRow = new StackPanel { Orientation = Orientation.Horizontal };
-            var extBox = new TextBox { Width = 90, Text = ".png", VerticalAlignment = VerticalAlignment.Center };
-            var fenceCombo = new ComboBox { Width = 190, Margin = new Thickness(8, 0, 0, 0) };
+            var extBox = new TextBox { Width = 70, Text = ".png", ToolTip = "Uzantı (örn .png) — boş bırakılabilir", VerticalAlignment = VerticalAlignment.Center };
+            var patBox = new TextBox { Width = 90, Text = "", ToolTip = "Ad kalıbı (örn ekran*) — boş bırakılabilir", Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            var fenceCombo = new ComboBox { Width = 150, Margin = new Thickness(6, 0, 0, 0) };
             foreach (var f in app.Config.Fences)
                 if (string.IsNullOrEmpty(f.PortalPath))
                     fenceCombo.Items.Add(new ComboBoxItem { Content = f.Title, Tag = f.Id });
             if (fenceCombo.Items.Count > 0) fenceCombo.SelectedIndex = 0;
 
-            var add = new Button { Content = "Ekle", Width = 70, Margin = new Thickness(8, 0, 0, 0) };
+            var add = new Button { Content = "Ekle", Width = 60, Margin = new Thickness(6, 0, 0, 0) };
             add.Click += (s, e) =>
             {
                 string ext = extBox.Text.Trim();
-                if (string.IsNullOrEmpty(ext)) return;
-                if (!ext.StartsWith(".")) ext = "." + ext;
+                string pat = patBox.Text.Trim();
+                if (string.IsNullOrEmpty(ext) && string.IsNullOrEmpty(pat)) return;
+                if (!string.IsNullOrEmpty(ext) && !ext.StartsWith(".")) ext = "." + ext;
                 var item = fenceCombo.SelectedItem as ComboBoxItem;
                 if (item == null) return;
-                app.Config.Rules.Add(new RuleData { Ext = ext, TargetId = (string)item.Tag });
+                app.Config.Rules.Add(new RuleData { Ext = ext, Pattern = pat, TargetId = (string)item.Tag });
                 app.SaveConfig();
                 app.RestartDesktopWatcher();
                 refresh();
             };
             addRow.Children.Add(extBox);
+            addRow.Children.Add(patBox);
             addRow.Children.Add(fenceCombo);
             addRow.Children.Add(add);
             panel.Children.Add(addRow);
@@ -1110,6 +1433,94 @@ namespace ModernFences
 
             w.Content = panel;
             w.ShowDialog();
+        }
+    }
+
+    // =====================================================================
+    //  ANLIK GÖRÜNTÜ (SNAPSHOT) DİYALOĞU
+    // =====================================================================
+    internal static class SnapshotDialog
+    {
+        public static void Show(App app)
+        {
+            var w = new Window
+            {
+                Title = "Anlık Görüntüler",
+                Width = 380,
+                Height = 380,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStyle = WindowStyle.ToolWindow,
+                Topmost = true
+            };
+            var panel = new StackPanel { Margin = new Thickness(14) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Masaüstü düzeninin fotoğrafını al; bir şey bozulursa geri yükle.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+
+            var list = new ListBox { Height = 160 };
+            Action refresh = () =>
+            {
+                list.Items.Clear();
+                foreach (var n in app.GetSnapshots()) list.Items.Add(n);
+            };
+            refresh();
+            panel.Children.Add(list);
+
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            var nameBox = new TextBox { Width = 150, Text = "düzen1", VerticalAlignment = VerticalAlignment.Center };
+            var save = new Button { Content = "Kaydet", Width = 80, Margin = new Thickness(8, 0, 0, 0) };
+            save.Click += (s, e) =>
+            {
+                string nm = SafeName(nameBox.Text.Trim());
+                if (nm.Length == 0) return;
+                app.SaveSnapshot(nm);
+                refresh();
+            };
+            row.Children.Add(nameBox);
+            row.Children.Add(save);
+            panel.Children.Add(row);
+
+            var row2 = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            var restore = new Button { Content = "Geri Yükle", Width = 100 };
+            restore.Click += (s, e) =>
+            {
+                if (list.SelectedItem != null)
+                {
+                    app.RestoreSnapshot((string)list.SelectedItem);
+                    w.Close();
+                }
+            };
+            var del = new Button { Content = "Sil", Width = 70, Margin = new Thickness(8, 0, 0, 0) };
+            del.Click += (s, e) =>
+            {
+                if (list.SelectedItem != null) { app.DeleteSnapshot((string)list.SelectedItem); refresh(); }
+            };
+            row2.Children.Add(restore);
+            row2.Children.Add(del);
+            panel.Children.Add(row2);
+
+            var close = new Button
+            {
+                Content = "Kapat",
+                Width = 80,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 14, 0, 0),
+                IsCancel = true
+            };
+            panel.Children.Add(close);
+
+            w.Content = panel;
+            w.ShowDialog();
+        }
+
+        private static string SafeName(string s)
+        {
+            foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
+            return s;
         }
     }
 }
