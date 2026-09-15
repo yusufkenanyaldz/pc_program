@@ -58,9 +58,11 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <!-- Sürüklenebilir başlık -->
+                <!-- Sürüklenebilir başlık. Sağ tık: menü. Düğmeler fareyle görünür. -->
                 <Grid x:Name="HeaderBar" Background="#22FFFFFF"
-                      MouseLeftButtonDown="Header_MouseDown">
+                      MouseLeftButtonDown="Header_MouseDown"
+                      MouseRightButtonUp="Header_RightClick"
+                      MouseEnter="Header_HoverIn" MouseLeave="Header_HoverOut">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -68,9 +70,9 @@
                     <TextBlock x:Name="BaslikYazi" Text="ARAÇLAR" Foreground="White"
                                FontWeight="Bold" FontSize="13" VerticalAlignment="Center"
                                Margin="12,0,0,0" Cursor="SizeAll"/>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <StackPanel x:Name="HeaderButtons" Grid.Column="1"
+                                Orientation="Horizontal" Visibility="Collapsed">
                         <Button Content="➕" Style="{StaticResource HeaderBtn}" Click="Yeni_Click" ToolTip="Yeni pencere"/>
-                        <Button Content="⋯" Style="{StaticResource HeaderBtn}" Click="Menu_Click" ToolTip="Menü"/>
                         <Button x:Name="CollapseBtn" Content="—" Style="{StaticResource HeaderBtn}" Click="Collapse_Click" ToolTip="Aç / Kapat"/>
                         <Button Content="✕" Style="{StaticResource HeaderBtn}" Click="Kapat_Click" ToolTip="Pencereyi kaldır"/>
                     </StackPanel>

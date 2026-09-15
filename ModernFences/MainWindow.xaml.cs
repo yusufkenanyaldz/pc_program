@@ -467,6 +467,23 @@ namespace ModernFences
             }
         }
 
+        // Başlığa sağ tık: tüm menü. Düğmeler fareyle görünür.
+        private void Header_RightClick(object sender, MouseButtonEventArgs e)
+        {
+            Menu_Click(HeaderBar, null);
+            e.Handled = true;
+        }
+
+        private void Header_HoverIn(object sender, MouseEventArgs e)
+        {
+            HeaderButtons.Visibility = Visibility.Visible;
+        }
+
+        private void Header_HoverOut(object sender, MouseEventArgs e)
+        {
+            HeaderButtons.Visibility = Visibility.Collapsed;
+        }
+
         private void ResizeRight_DragDelta(object sender, DragDeltaEventArgs e)
         {
             if (_data.Locked) return;
