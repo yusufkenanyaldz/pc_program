@@ -407,10 +407,24 @@ namespace ModernFences
         // ------------------------------------------------------------------
         //  SÜRÜKLE-BIRAK
         // ------------------------------------------------------------------
+        private void Window_DragEnter(object sender, DragEventArgs e)
+        {
+            // Auto-hide açıkken sürükleyince çiti aç ki büyük bir bırakma alanı olsun
+            if (_data.AutoHide && !_contentVisible && e.Data.GetDataPresent(DataFormats.FileDrop))
+                SetContentVisible(true);
+        }
+
+        private void Window_DragLeave(object sender, DragEventArgs e)
+        {
+            if (_data.AutoHide && !IsMouseOver)
+                SetContentVisible(false);
+        }
+
         private void Window_DragOver(object sender, DragEventArgs e)
         {
-            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
-                ? DragDropEffects.Move : DragDropEffects.None;
+            bool ok = e.Data.GetDataPresent(DataFormats.FileDrop);
+            if (ok && _data.AutoHide && !_contentVisible) SetContentVisible(true);
+            e.Effects = ok ? DragDropEffects.Move : DragDropEffects.None;
             e.Handled = true;
         }
 
@@ -438,6 +452,7 @@ namespace ModernFences
                 }
             }
             LoadItems();
+            if (_data.AutoHide && !IsMouseOver) SetContentVisible(false);
         }
 
         // ------------------------------------------------------------------

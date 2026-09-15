@@ -4,6 +4,7 @@
         Title="Modern Fences" Height="420" Width="300"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
+        DragEnter="Window_DragEnter" DragLeave="Window_DragLeave"
         ShowInTaskbar="False"
         MinWidth="180" MinHeight="40"
         WindowStartupLocation="Manual"
@@ -45,7 +46,10 @@
         </Style>
     </Window.Resources>
 
-    <Grid>
+    <!-- Background #01000000: gözle görülmez (alfa 1) ama tüm pencereyi
+         bırakma/tıklama için "dolu" yapar. Saydamlık ne olursa olsun dosya
+         pencerenin içinden geçip masaüstüne düşmez. -->
+    <Grid Background="#01000000">
         <!-- Ana çerçeve (yarı şeffaf, yuvarlak köşe) -->
         <Border x:Name="RootBorder" Background="#33000000" CornerRadius="10" ClipToBounds="True">
             <Grid>
